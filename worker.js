@@ -263,6 +263,8 @@ async function toggleNotifications() {
     if (perm !== 'granted') { alert('Notifications are blocked. Allow them in Settings to get alerts.'); return; }
     bellSay('bell: registering service worker');
     reg = await navigator.serviceWorker.register('sw.js');
+    bellSay('bell: waiting for worker to activate');
+    reg = await navigator.serviceWorker.ready;
     bellSay('bell: subscribing');
     sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64urlToBytes(VAPID_PUBLIC_KEY) });
     bellSay('bell: saving subscription');
