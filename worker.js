@@ -11,165 +11,6 @@
 const STORES = ['heb', 'tjs', 'costco', 'either'];
 const STORE_LABEL = { heb: 'H-E-B', tjs: "Trader Joe's", costco: 'Costco', either: 'Either' };
 
-
-
-// ---- Web Push notifications (RFC 8291 aes128gcm + RFC 8292 VAPID) ----
-// The public VAPID key is baked in (it's public). The private JWK is a secret
-// and is never committed:  npx wrangler secret put VAPID_PRIVATE_JWK
-const VAPID_PUBLIC_KEY = 'BB0k6VaPs-X82jiyvJeo_eaaDJLOhel0RD8-kkRRM9V8ePzRChnwsWAIMN_IHtE3wfLFomoZJ9OMtMj_AfLEQpw';
-const VAPID_SUBJECT = 'mailto:johan.m.edvinsson@gmail.com';
-
-const SW_JS = `self.addEventListener('push', function (event) {
-  var data = {};
-  try { data = event.data.json(); } catch (e) {}
-  event.waitUntil(self.registration.showNotification(data.title || 'Grocery List', {
-    body: data.body || '',
-    tag: 'grocery-list'
-  }));
-});
-self.addEventListener('notificationclick', function (event) {
-  event.notification.close();
-  event.waitUntil(clients.openWindow(self.registration.scope));
-});
-`;
-
-function b64urlDecode(s) {
-  s = s.replace(/-/g, '+').replace(/_/g, '/');
-  while (s.length % 4) s += '=';
-  const bin = atob(s);
-  const bytes = new Uint8Array(bin.length);
-  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-  return bytes;
-}
-
-function b64urlEncode(bytes) {
-  const arr = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
-  let bin = '';
-  for (let i = 0; i < arr.length; i += 0x8000) {
-    bin += String.fromCharCode.apply(null, arr.subarray(i, i + 0x8000));
-  }
-  return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-}
-
-async function hmacSha256(keyBytes, dataBytes) {
-  const key = await crypto.subtle.importKey('raw', keyBytes, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
-  return new Uint8Array(await crypto.subtle.sign('HMAC', key, dataBytes));
-}
-
-// RFC 5869, explicit extract/expand so each step's salt and info stay exact.
-async function hkdfExtract(salt, ikm) {
-  return hmacSha256(salt, ikm);
-}
-async function hkdfExpand(prk, info, len) {
-  const out = new Uint8Array(len);
-  let t = new Uint8Array(0);
-  let pos = 0;
-  let counter = 1;
-  while (pos < len) {
-    const input = new Uint8Array(t.length + info.length + 1);
-    input.set(t, 0);
-    input.set(info, t.length);
-    input[input.length - 1] = counter;
-    t = await hmacSha256(prk, input);
-    const take = Math.min(t.length, len - pos);
-    out.set(t.subarray(0, take), pos);
-    pos += take;
-    counter++;
-  }
-  return out;
-}
-
-// RFC 8291 section 3.4: "aes128gcm" content encoding.
-async function encryptPushPayload(p256dhB64, authB64, payload) {
-  const uaPub = b64urlDecode(p256dhB64);   // browser's public key, 65 bytes
-  const authSecret = b64urlDecode(authB64); // 16 bytes
-  const eph = await crypto.subtle.generateKey({ name: 'ECDH', namedCurve: 'P-256' }, true, ['deriveBits']);
-  const uaKey = await crypto.subtle.importKey('raw', uaPub, { name: 'ECDH', namedCurve: 'P-256' }, true, []);
-  const shared = new Uint8Array(await crypto.subtle.deriveBits({ name: 'ECDH', public: uaKey }, eph.privateKey, 256));
-  const asPub = new Uint8Array(await crypto.subtle.exportKey('raw', eph.publicKey)); // 65 bytes
-
-  const te = new TextEncoder();
-  const keyInfo = new Uint8Array(13 + 65 + 65);
-  keyInfo.set(te.encode('WebPush: info\0'), 0);
-  keyInfo.set(uaPub, 13);
-  keyInfo.set(asPub, 78);
-  const ikm = await hkdfExpand(await hkdfExtract(authSecret, shared), keyInfo, 32);
-
-  const salt = crypto.getRandomValues(new Uint8Array(16));
-  const prk = await hkdfExtract(salt, ikm);
-  const cek = await hkdfExpand(prk, te.encode('Content-Encoding: aes128gcm\0'), 16);
-  const nonce = await hkdfExpand(prk, te.encode('Content-Encoding: nonce\0'), 12);
-
-  const data = te.encode(payload);
-  const record = new Uint8Array(data.length + 1);
-  record.set(data, 0);
-  record[data.length] = 0x02; // padding delimiter, single-record message
-  const rs = record.length;
-
-  const cekKey = await crypto.subtle.importKey('raw', cek, 'AES-GCM', false, ['encrypt']);
-  const ct = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv: nonce }, cekKey, record));
-
-  const body = new Uint8Array(16 + 4 + 1 + 65 + ct.length);
-  body.set(salt, 0);
-  body[16] = (rs >>> 24) & 0xff;
-  body[17] = (rs >>> 16) & 0xff;
-  body[18] = (rs >>> 8) & 0xff;
-  body[19] = rs & 0xff;
-  body[20] = 65;
-  body.set(asPub, 21);
-  body.set(ct, 86);
-  return { body };
-}
-
-// RFC 8292: VAPID Authorization header.
-async function vapidAuthHeader(endpoint, env) {
-  if (!env.VAPID_PRIVATE_JWK) throw new Error('missing VAPID_PRIVATE_JWK secret');
-  const jwk = JSON.parse(env.VAPID_PRIVATE_JWK);
-  const header = b64urlEncode(new TextEncoder().encode(JSON.stringify({ typ: 'JWT', alg: 'ES256' })));
-  const now = Math.floor(Date.now() / 1000);
-  const claims = b64urlEncode(new TextEncoder().encode(JSON.stringify({
-    aud: new URL(endpoint).origin, exp: now + 43200, sub: VAPID_SUBJECT
-  })));
-  const unsigned = header + '.' + claims;
-  const key = await crypto.subtle.importKey('jwk', jwk, { name: 'ECDSA', namedCurve: 'P-256' }, false, ['sign']);
-  const sig = new Uint8Array(await crypto.subtle.sign({ name: 'ECDSA', hash: 'SHA-256' }, key, new TextEncoder().encode(unsigned)));
-  return 'vapid t=' + unsigned + '.' + b64urlEncode(sig) + ', k=' + VAPID_PUBLIC_KEY;
-}
-
-async function sendPush(env, sub, payload) {
-  const enc = await encryptPushPayload(sub.p256dh, sub.auth, JSON.stringify(payload));
-  const res = await fetch(sub.endpoint, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/octet-stream',
-      'Content-Encoding': 'aes128gcm',
-      'Authorization': await vapidAuthHeader(sub.endpoint, env),
-      'TTL': '86400'
-    },
-    body: enc.body
-  });
-  return res.status;
-}
-
-// Fan out a notification to every subscribed device except the actor's own.
-async function notifyOthers(env, actorName, bodyText) {
-  try {
-    if (!bodyText) return;
-    const rows = await env.DB.prepare('SELECT endpoint, p256dh, auth, name FROM push_subscriptions').all();
-    const subs = (rows.results || []).filter(s => !actorName || s.name !== actorName);
-    if (!subs.length) return;
-    const payload = { title: '🧺 Grocery List', body: bodyText };
-    await Promise.all(subs.map(async (s) => {
-      try {
-        const status = await sendPush(env, s, payload);
-        if (status === 404 || status === 410) {
-          await env.DB.prepare('DELETE FROM push_subscriptions WHERE endpoint = ?').bind(s.endpoint).run();
-        }
-      } catch (e) { /* one bad subscription must not break the rest */ }
-    }));
-  } catch (e) { /* notifications must never break the API */ }
-}
-
 const PAGE = `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -191,10 +32,6 @@ const PAGE = `<!DOCTYPE html>
   .sub { font-size: 13px; opacity: .85; margin-top: 2px; font-weight: 500; }
   #whoBtn { border: 1px solid rgba(255,255,255,.45); background: rgba(255,255,255,.16); color: #fff; font-size: 14px; font-weight: 600; padding: 8px 14px; border-radius: 999px; cursor: pointer; transition: transform .12s ease; }
   #whoBtn:active { transform: scale(.94); }
-  .headbtns { display: flex; align-items: center; gap: 10px; }
-  #bellBtn { border: 1px solid rgba(255,255,255,.45); background: rgba(255,255,255,.16); color: #fff; font-size: 17px; padding: 7px 11px; border-radius: 999px; cursor: pointer; opacity: .45; transition: opacity .15s ease, transform .12s ease; }
-  #bellBtn.on { opacity: 1; }
-  #bellBtn:active { transform: scale(.94); }
   .chips { display: flex; gap: 8px; margin-top: 14px; }
   .chip { flex: 1; padding: 11px 0; border: none; border-radius: 999px; background: rgba(255,255,255,.16); color: #fff; font-size: 15px; font-weight: 700; text-align: center; cursor: pointer; transition: all .15s ease; }
   .chip.active { background: #fff; color: #0b5a34; box-shadow: 0 2px 6px rgba(0,0,0,.2); }
@@ -265,10 +102,7 @@ const PAGE = `<!DOCTYPE html>
 <header>
   <div class="headrow">
     <div><h1>🧺 Grocery List</h1><div class="sub" id="buyCount"></div></div>
-    <div class="headbtns">
-      <button id="bellBtn" aria-label="notifications" title="notifications">&#128276;</button>
-      <button id="whoBtn" aria-label="change name"></button>
-    </div>
+    <button id="whoBtn" aria-label="change name"></button>
   </div>
   <div class="chips" id="filters">
     <button class="chip active" data-f="all">All</button>
@@ -308,17 +142,10 @@ const PAGE = `<!DOCTYPE html>
   </div>
 </footer>
 <script>
-// If anything in this script throws on load, say so instead of looking dead.
-window.onerror = function (msg) {
-  var e = document.getElementById('err');
-  if (e) { e.textContent = 'Page error: ' + msg; e.style.display = 'block'; }
-};
-function storeGet(k) { try { return localStorage.getItem(k) || ''; } catch (e) { return ''; } }
-function storeSet(k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
 var filter = 'all';
 var addStore = 'either';
 var items = [];
-var who = storeGet('groceryWho');
+var who = localStorage.getItem('groceryWho') || '';
 var listEl = document.getElementById('list');
 var purchEl = document.getElementById('purchased');
 var emptyEl = document.getElementById('empty');
@@ -327,79 +154,18 @@ var errEl = document.getElementById('err');
 var whoBtn = document.getElementById('whoBtn');
 
 function ensureWho() {
-  // Never prompt() at page load: on iOS it freezes the page before any
-  // button gets wired up. The header name button handles setup on tap.
-  whoBtn.textContent = who || 'Set name';
+  if (!who) {
+    var n = prompt('Your name (shown on items you add/buy):', '');
+    if (n && n.trim()) { who = n.trim(); localStorage.setItem('groceryWho', who); }
+    else { who = 'Someone'; }
+  }
+  whoBtn.textContent = who;
 }
 whoBtn.onclick = function () {
   var n = prompt('Your name:', who);
-  if (n && n.trim()) { who = n.trim(); storeSet('groceryWho', who); whoBtn.textContent = who; refreshPushName(); }
+  if (n && n.trim()) { who = n.trim(); localStorage.setItem('groceryWho', who); whoBtn.textContent = who; }
 };
 ensureWho();
-
-// ---- Web Push client ----
-var VAPID_PUBLIC_KEY = 'BB0k6VaPs-X82jiyvJeo_eaaDJLOhel0RD8-kkRRM9V8ePzRChnwsWAIMN_IHtE3wfLFomoZJ9OMtMj_AfLEQpw';
-function b64urlToBytes(b64) {
-  b64 = b64.replace(/-/g, '+').replace(/_/g, '/');
-  while (b64.length % 4) b64 += '=';
-  var bin = atob(b64);
-  var bytes = new Uint8Array(bin.length);
-  for (var i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-  return bytes;
-}
-function bufToB64url(buf) {
-  var bytes = new Uint8Array(buf);
-  var bin = '';
-  for (var i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
-  return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-}
-function pushSupported() { return ('serviceWorker' in navigator) && ('PushManager' in window); }
-var bellBtn = document.getElementById('bellBtn');
-async function postSubscription(sub) {
-  await api('/subscriptions', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ endpoint: sub.endpoint,
-      keys: { p256dh: bufToB64url(sub.getKey('p256dh')), auth: bufToB64url(sub.getKey('auth')) },
-      name: who }) });
-}
-async function refreshPushName() {
-  try {
-    var reg = await navigator.serviceWorker.getRegistration();
-    var sub = reg ? await reg.pushManager.getSubscription() : null;
-    if (sub) await postSubscription(sub);
-  } catch (e) { /* best effort */ }
-}
-async function updateBell() {
-  try {
-    if (!pushSupported()) { bellBtn.style.display = 'none'; return; }
-    var reg = await navigator.serviceWorker.getRegistration();
-    var sub = reg ? await reg.pushManager.getSubscription() : null;
-    bellBtn.classList.toggle('on', !!sub);
-  } catch (e) { /* leave the bell as-is */ }
-}
-async function toggleNotifications() {
-  try {
-    var reg = await navigator.serviceWorker.getRegistration();
-    var sub = reg ? await reg.pushManager.getSubscription() : null;
-    if (sub) {
-      await sub.unsubscribe();
-      try {
-        await api('/subscriptions', { method: 'DELETE', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ endpoint: sub.endpoint }) });
-      } catch (e) { /* server cleanup is best effort */ }
-      updateBell();
-      return;
-    }
-    if (!pushSupported()) { alert('Push notifications are not supported in this browser.'); return; }
-    var perm = await Notification.requestPermission();
-    if (perm !== 'granted') { alert('Notifications are blocked. Allow them in Settings to get alerts.'); return; }
-    reg = await navigator.serviceWorker.register('sw.js');
-    sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64urlToBytes(VAPID_PUBLIC_KEY) });
-    await postSubscription(sub);
-    updateBell();
-  } catch (e) { alert('Could not turn on notifications.'); }
-}
-bellBtn.onclick = toggleNotifications;
-updateBell();
 
 function api(path, opts) {
   return fetch('api/items' + path, opts).then(function (r) {
@@ -668,34 +434,9 @@ function badRequest(msg) {
   return json({ error: msg }, 400);
 }
 
-async function handleApi(request, env, ctx, rest) {
+async function handleApi(request, env, rest) {
   const method = request.method;
   const db = env.DB;
-
-  // POST/DELETE /api/items/subscriptions — manage Web Push subscriptions
-  if (rest.length === 1 && rest[0] === 'subscriptions') {
-    if (method === 'POST') {
-      let body;
-      try { body = await request.json(); } catch { return badRequest('Invalid JSON'); }
-      const endpoint = (body.endpoint || '').toString();
-      const p256dh = body.keys && body.keys.p256dh ? body.keys.p256dh.toString() : '';
-      const auth = body.keys && body.keys.auth ? body.keys.auth.toString() : '';
-      const name = (body.name || '').toString().trim().slice(0, 60) || null;
-      if (!endpoint || !p256dh || !auth) return badRequest('endpoint and keys required');
-      await db.prepare('INSERT OR REPLACE INTO push_subscriptions (endpoint, p256dh, auth, name, created_at) VALUES (?, ?, ?, ?, ?)')
-        .bind(endpoint, p256dh, auth, name, new Date().toISOString()).run();
-      return json({ ok: true });
-    }
-    if (method === 'DELETE') {
-      let body = {};
-      try { body = await request.json(); } catch { /* endpoint may be absent */ }
-      const endpoint = (body.endpoint || '').toString();
-      if (!endpoint) return badRequest('endpoint required');
-      await db.prepare('DELETE FROM push_subscriptions WHERE endpoint = ?').bind(endpoint).run();
-      return json({ ok: true });
-    }
-    return json({ error: 'Method not allowed' }, 405);
-  }
 
   // POST /api/items/bulk — { ids: [...], op: 'claim'|'unclaim'|'purchase'|'restore'|'delete', by }
   if (rest.length === 1 && rest[0] === 'bulk') {
@@ -723,13 +464,6 @@ async function handleApi(request, env, ctx, rest) {
       }
     });
     await db.batch(stmts);
-    if ((op === 'purchase' || op === 'claim') && by) {
-      const what = ids.length === 1 ? '1 item' : ids.length + ' items';
-      const msg = op === 'purchase'
-        ? by + ' bought ' + what
-        : by + ' will get ' + what + (when ? ' · ' + when : '');
-      ctx.waitUntil(notifyOthers(env, by, msg));
-    }
     return json({ ok: true, count: ids.length });
   }
 
@@ -762,10 +496,6 @@ async function handleApi(request, env, ctx, rest) {
         .prepare('INSERT INTO items (id, name, store, checked, added_by, created_at, updated_at) VALUES (?, ?, ?, 0, ?, ?, ?)')
         .bind(id, name, store, addedBy, now, now)
         .run();
-      if (addedBy) {
-        ctx.waitUntil(notifyOthers(env, addedBy,
-          addedBy + ' added "' + name + '"' + (store !== 'either' ? ' · ' + storeLabel(store) : '')));
-      }
       return json({ id, name, store, checked: 0, added_by: addedBy, created_at: now, updated_at: now }, 201);
     }
     return json({ error: 'Method not allowed' }, 405);
@@ -777,7 +507,6 @@ async function handleApi(request, env, ctx, rest) {
     if (method === 'PATCH') {
       let body;
       try { body = await request.json(); } catch { return badRequest('Invalid JSON'); }
-      const existing = await db.prepare('SELECT name, checked FROM items WHERE id = ?').bind(id).first();
       const sets = [];
       const binds = [];
       if (body.name !== undefined) {
@@ -827,15 +556,6 @@ async function handleApi(request, env, ctx, rest) {
         .bind(...binds)
         .run();
       if (res.meta.changes === 0) return json({ error: 'Not found' }, 404);
-      if (body.checked && existing && !existing.checked) {
-        const actor = (body.purchased_by || '').toString().trim().slice(0, 60);
-        if (actor) ctx.waitUntil(notifyOthers(env, actor, actor + ' bought "' + existing.name + '"'));
-      } else if (body.claimed && existing) {
-        const actor = (body.claimed_by || '').toString().trim().slice(0, 60);
-        const when = (body.claim_when || '').toString().trim().slice(0, 60);
-        if (actor) ctx.waitUntil(notifyOthers(env, actor,
-          actor + ' will get "' + existing.name + '"' + (when ? ' · ' + when : '')));
-      }
       return json({ ok: true });
     }
     if (method === 'DELETE') {
@@ -850,7 +570,7 @@ async function handleApi(request, env, ctx, rest) {
 }
 
 export default {
-  async fetch(request, env, ctx) {
+  async fetch(request, env) {
     const url = new URL(request.url);
     const parts = url.pathname.split('/').filter(Boolean);
 
@@ -869,11 +589,8 @@ export default {
         headers: { 'Content-Type': 'text/html; charset=utf-8' },
       });
     }
-    if (rest.length === 1 && rest[0] === 'sw.js') {
-      return new Response(SW_JS, { headers: { 'Content-Type': 'application/javascript' } });
-    }
     if (rest[0] === 'api' && rest[1] === 'items') {
-      return handleApi(request, env, ctx, rest.slice(2));
+      return handleApi(request, env, rest.slice(2));
     }
     return new Response('Not found', { status: 404 });
   },
