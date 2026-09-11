@@ -27,6 +27,159 @@ self.addEventListener('notificationclick', function (event) {
 });
 `;
 
+// ---- Web Push sending (RFC 8291 aes128gcm + RFC 8292 VAPID) ----
+// Server-side only: this code runs in the worker, NOT inside the PAGE
+// template literal, so escapes are plain JavaScript ('\0' is a NUL byte,
+// /\+/ matches a literal plus). Do not move it into PAGE without doubling
+// every backslash (see the Sep 11, 2026 outage).
+// The private VAPID key is a secret and is never committed:
+//   npx wrangler secret put VAPID_PRIVATE_JWK
+const VAPID_PUBLIC_KEY = 'BB0k6VaPs-X82jiyvJeo_eaaDJLOhel0RD8-kkRRM9V8ePzRChnwsWAIMN_IHtE3wfLFomoZJ9OMtMj_AfLEQpw';
+const VAPID_SUBJECT = 'mailto:johan.m.edvinsson@gmail.com';
+
+function b64urlDecode(s) {
+  s = s.replace(/-/g, '+').replace(/_/g, '/');
+  while (s.length % 4) s += '=';
+  const bin = atob(s);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return bytes;
+}
+
+function b64urlEncode(bytes) {
+  const arr = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
+  let bin = '';
+  for (let i = 0; i < arr.length; i += 0x8000) {
+    bin += String.fromCharCode.apply(null, arr.subarray(i, i + 0x8000));
+  }
+  return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+async function hmacSha256(keyBytes, dataBytes) {
+  const key = await crypto.subtle.importKey('raw', keyBytes, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+  return new Uint8Array(await crypto.subtle.sign('HMAC', key, dataBytes));
+}
+
+// RFC 5869, explicit extract/expand so each step's salt and info stay exact.
+async function hkdfExtract(salt, ikm) {
+  return hmacSha256(salt, ikm);
+}
+async function hkdfExpand(prk, info, len) {
+  const out = new Uint8Array(len);
+  let t = new Uint8Array(0);
+  let pos = 0;
+  let counter = 1;
+  while (pos < len) {
+    const input = new Uint8Array(t.length + info.length + 1);
+    input.set(t, 0);
+    input.set(info, t.length);
+    input[input.length - 1] = counter;
+    t = await hmacSha256(prk, input);
+    const take = Math.min(t.length, len - pos);
+    out.set(t.subarray(0, take), pos);
+    pos += take;
+    counter++;
+  }
+  return out;
+}
+
+// RFC 8291 section 3.4: "aes128gcm" content encoding.
+async function encryptPushPayload(p256dhB64, authB64, payload) {
+  const uaPub = b64urlDecode(p256dhB64);   // browser's public key, 65 bytes
+  const authSecret = b64urlDecode(authB64); // 16 bytes
+  const eph = await crypto.subtle.generateKey({ name: 'ECDH', namedCurve: 'P-256' }, true, ['deriveBits']);
+  const uaKey = await crypto.subtle.importKey('raw', uaPub, { name: 'ECDH', namedCurve: 'P-256' }, true, []);
+  const shared = new Uint8Array(await crypto.subtle.deriveBits({ name: 'ECDH', public: uaKey }, eph.privateKey, 256));
+  const asPub = new Uint8Array(await crypto.subtle.exportKey('raw', eph.publicKey)); // 65 bytes
+
+  const te = new TextEncoder();
+  const keyInfo = new Uint8Array(13 + 1 + 65 + 65);
+  keyInfo.set(te.encode('WebPush: info'), 0);
+  keyInfo[13] = 0; // NUL byte per RFC 8291
+  keyInfo.set(uaPub, 14);
+  keyInfo.set(asPub, 79);
+  const ikm = await hkdfExpand(await hkdfExtract(authSecret, shared), keyInfo, 32);
+
+  const salt = crypto.getRandomValues(new Uint8Array(16));
+  const prk = await hkdfExtract(salt, ikm);
+  const cekInfo = te.encode('Content-Encoding: aes128gcm');
+  const cekInfo0 = new Uint8Array(cekInfo.length + 1); cekInfo0.set(cekInfo, 0); // NUL-terminated
+  const nonceInfo = te.encode('Content-Encoding: nonce');
+  const nonceInfo0 = new Uint8Array(nonceInfo.length + 1); nonceInfo0.set(nonceInfo, 0);
+  const cek = await hkdfExpand(prk, cekInfo0, 16);
+  const nonce = await hkdfExpand(prk, nonceInfo0, 12);
+
+  const data = te.encode(payload);
+  const record = new Uint8Array(data.length + 1);
+  record.set(data, 0);
+  record[data.length] = 0x02; // padding delimiter, single-record message
+  const rs = record.length;
+
+  const cekKey = await crypto.subtle.importKey('raw', cek, 'AES-GCM', false, ['encrypt']);
+  const ct = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv: nonce }, cekKey, record));
+
+  const body = new Uint8Array(16 + 4 + 1 + 65 + ct.length);
+  body.set(salt, 0);
+  body[16] = (rs >>> 24) & 0xff;
+  body[17] = (rs >>> 16) & 0xff;
+  body[18] = (rs >>> 8) & 0xff;
+  body[19] = rs & 0xff;
+  body[20] = 65;
+  body.set(asPub, 21);
+  body.set(ct, 86);
+  return { body };
+}
+
+// RFC 8292: VAPID Authorization header.
+async function vapidAuthHeader(endpoint, env) {
+  if (!env.VAPID_PRIVATE_JWK) throw new Error('missing VAPID_PRIVATE_JWK secret');
+  const jwk = JSON.parse(env.VAPID_PRIVATE_JWK);
+  const header = b64urlEncode(new TextEncoder().encode(JSON.stringify({ typ: 'JWT', alg: 'ES256' })));
+  const now = Math.floor(Date.now() / 1000);
+  const claims = b64urlEncode(new TextEncoder().encode(JSON.stringify({
+    aud: new URL(endpoint).origin, exp: now + 43200, sub: VAPID_SUBJECT
+  })));
+  const unsigned = header + '.' + claims;
+  const key = await crypto.subtle.importKey('jwk', jwk, { name: 'ECDSA', namedCurve: 'P-256' }, false, ['sign']);
+  const sig = new Uint8Array(await crypto.subtle.sign({ name: 'ECDSA', hash: 'SHA-256' }, key, new TextEncoder().encode(unsigned)));
+  return 'vapid t=' + unsigned + '.' + b64urlEncode(sig) + ', k=' + VAPID_PUBLIC_KEY;
+}
+
+async function sendPush(env, sub, payload) {
+  const enc = await encryptPushPayload(sub.p256dh, sub.auth, JSON.stringify(payload));
+  const res = await fetch(sub.endpoint, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/octet-stream',
+      'Content-Encoding': 'aes128gcm',
+      'Authorization': await vapidAuthHeader(sub.endpoint, env),
+      'TTL': '86400'
+    },
+    body: enc.body
+  });
+  return res.status;
+}
+
+// Fan out a notification to every subscribed device except the actor's own.
+// Never throws: notification failures must not break the grocery API.
+async function notifyOthers(env, actorName, bodyText) {
+  try {
+    if (!bodyText) return;
+    const rows = await env.DB.prepare('SELECT endpoint, p256dh, auth, name FROM push_subscriptions').all();
+    const subs = (rows.results || []).filter(s => !actorName || s.name !== actorName);
+    if (!subs.length) return;
+    const payload = { title: '🧺 Grocery List', body: bodyText };
+    await Promise.all(subs.map(async (s) => {
+      try {
+        const status = await sendPush(env, s, payload);
+        if (status === 404 || status === 410) {
+          await env.DB.prepare('DELETE FROM push_subscriptions WHERE endpoint = ?').bind(s.endpoint).run();
+        }
+      } catch (e) { /* one bad subscription must not break the rest */ }
+    }));
+  } catch (e) { /* notifications must never break the API */ }
+}
+
 const PAGE = `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -544,7 +697,7 @@ function badRequest(msg) {
   return json({ error: msg }, 400);
 }
 
-async function handleApi(request, env, rest) {
+async function handleApi(request, env, ctx, rest) {
   const method = request.method;
   const db = env.DB;
 
@@ -574,6 +727,13 @@ async function handleApi(request, env, rest) {
       }
     });
     await db.batch(stmts);
+    if ((op === 'purchase' || op === 'claim') && by) {
+      const what = ids.length === 1 ? '1 item' : ids.length + ' items';
+      const msg = op === 'purchase'
+        ? by + ' bought ' + what
+        : by + ' will get ' + what + (when ? ' · ' + when : '');
+      ctx.waitUntil(notifyOthers(env, by, msg));
+    }
     return json({ ok: true, count: ids.length });
   }
 
@@ -585,8 +745,8 @@ async function handleApi(request, env, rest) {
   }
 
   // POST/DELETE /api/items/subscriptions — manage Web Push subscriptions.
-  // Table created by migrate6.sql. No fan-out yet: this step only stores
-  // subscriptions when the user taps the bell.
+  // Table created by migrate6.sql. Fan-out happens in notifyOthers(), called
+  // from the add/purchase/claim handlers via ctx.waitUntil().
   if (rest.length === 1 && rest[0] === 'subscriptions') {
     if (method === 'POST') {
       let body;
@@ -633,6 +793,10 @@ async function handleApi(request, env, rest) {
         .prepare('INSERT INTO items (id, name, store, checked, added_by, created_at, updated_at) VALUES (?, ?, ?, 0, ?, ?, ?)')
         .bind(id, name, store, addedBy, now, now)
         .run();
+      if (addedBy) {
+        ctx.waitUntil(notifyOthers(env, addedBy,
+          addedBy + ' added "' + name + '"' + (store !== 'either' ? ' · ' + STORE_LABEL[store] : '')));
+      }
       return json({ id, name, store, checked: 0, added_by: addedBy, created_at: now, updated_at: now }, 201);
     }
     return json({ error: 'Method not allowed' }, 405);
@@ -688,11 +852,26 @@ async function handleApi(request, env, rest) {
       if (sets.length === 0) return badRequest('nothing to update');
       sets.push('updated_at = ?');
       binds.push(new Date().toISOString(), id);
+      let existing = null;
+      if (body.checked || body.claimed) {
+        existing = await db.prepare('SELECT name, checked FROM items WHERE id = ?').bind(id).first();
+      }
       const res = await db
         .prepare('UPDATE items SET ' + sets.join(', ') + ' WHERE id = ?')
         .bind(...binds)
         .run();
       if (res.meta.changes === 0) return json({ error: 'Not found' }, 404);
+      if (existing) {
+        if (body.checked && !existing.checked) {
+          const actor = (body.purchased_by || '').toString().trim().slice(0, 60);
+          if (actor) ctx.waitUntil(notifyOthers(env, actor, actor + ' bought "' + existing.name + '"'));
+        } else if (body.claimed) {
+          const actor = (body.claimed_by || '').toString().trim().slice(0, 60);
+          const when = (body.claim_when || '').toString().trim().slice(0, 60);
+          if (actor) ctx.waitUntil(notifyOthers(env, actor,
+            actor + ' will get "' + existing.name + '"' + (when ? ' · ' + when : '')));
+        }
+      }
       return json({ ok: true });
     }
     if (method === 'DELETE') {
@@ -707,7 +886,7 @@ async function handleApi(request, env, rest) {
 }
 
 export default {
-  async fetch(request, env) {
+  async fetch(request, env, ctx) {
     const url = new URL(request.url);
     const parts = url.pathname.split('/').filter(Boolean);
 
@@ -727,7 +906,7 @@ export default {
       });
     }
     if (rest[0] === 'api' && rest[1] === 'items') {
-      return handleApi(request, env, rest.slice(2));
+      return handleApi(request, env, ctx, rest.slice(2));
     }
     if (rest.length === 1 && rest[0] === 'sw.js') {
       return new Response(SW_JS, { headers: { 'Content-Type': 'application/javascript' } });
