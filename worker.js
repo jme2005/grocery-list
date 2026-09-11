@@ -11,6 +11,22 @@
 const STORES = ['heb', 'tjs', 'costco', 'either'];
 const STORE_LABEL = { heb: 'H-E-B', tjs: "Trader Joe's", costco: 'Costco', either: 'Either' };
 
+// Service worker for Web Push. Served at /{LIST_SECRET}/sw.js so it stays
+// same-origin with the page. Registered only when the user taps the bell.
+const SW_JS = `self.addEventListener('push', function (event) {
+  var data = {};
+  try { data = event.data.json(); } catch (e) {}
+  event.waitUntil(self.registration.showNotification(data.title || 'Grocery List', {
+    body: data.body || '',
+    tag: 'grocery-list'
+  }));
+});
+self.addEventListener('notificationclick', function (event) {
+  event.notification.close();
+  event.waitUntil(clients.openWindow(self.registration.scope));
+});
+`;
+
 const PAGE = `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -32,6 +48,10 @@ const PAGE = `<!DOCTYPE html>
   .sub { font-size: 13px; opacity: .85; margin-top: 2px; font-weight: 500; }
   #whoBtn { border: 1px solid rgba(255,255,255,.45); background: rgba(255,255,255,.16); color: #fff; font-size: 14px; font-weight: 600; padding: 8px 14px; border-radius: 999px; cursor: pointer; transition: transform .12s ease; }
   #whoBtn:active { transform: scale(.94); }
+  .headbtns { display: flex; gap: 8px; align-items: center; }
+  #bellBtn { border: 1px solid rgba(255,255,255,.45); background: rgba(255,255,255,.16); color: #fff; font-size: 17px; padding: 7px 11px; border-radius: 999px; cursor: pointer; opacity: .45; transition: opacity .15s ease, transform .12s ease; }
+  #bellBtn.on { opacity: 1; }
+  #bellBtn:active { transform: scale(.94); }
   .chips { display: flex; gap: 8px; margin-top: 14px; }
   .chip { flex: 1; padding: 11px 0; border: none; border-radius: 999px; background: rgba(255,255,255,.16); color: #fff; font-size: 15px; font-weight: 700; text-align: center; cursor: pointer; transition: all .15s ease; }
   .chip.active { background: #fff; color: #0b5a34; box-shadow: 0 2px 6px rgba(0,0,0,.2); }
@@ -102,7 +122,10 @@ const PAGE = `<!DOCTYPE html>
 <header>
   <div class="headrow">
     <div><h1>🧺 Grocery List</h1><div class="sub" id="buyCount"></div></div>
-    <button id="whoBtn" aria-label="change name"></button>
+    <span class="headbtns">
+      <button id="bellBtn" aria-label="notifications" title="notifications">&#128276;</button>
+      <button id="whoBtn" aria-label="change name"></button>
+    </span>
   </div>
   <div class="chips" id="filters">
     <button class="chip active" data-f="all">All</button>
@@ -173,6 +196,67 @@ whoBtn.onclick = function () {
   if (n && n.trim()) { who = n.trim(); storeSet('groceryWho', who); whoBtn.textContent = who; }
 };
 ensureWho();
+
+// ---- Notifications bell ----
+// Tap-gated on purpose: no Push API or service-worker work happens until the
+// user taps the bell. If this step breaks the page, the error banner above
+// will say exactly which line failed.
+var VAPID_PUBLIC_KEY = 'BB0k6VaPs-X82jiyvJeo_eaaDJLOhel0RD8-kkRRM9V8ePzRChnwsWAIMN_IHtE3wfLFomoZJ9OMtMj_AfLEQpw';
+var bellBtn = document.getElementById('bellBtn');
+function pushSupported() { return ('serviceWorker' in navigator) && ('PushManager' in window); }
+function b64urlToBytes(b64) {
+  b64 = b64.replace(/-/g, '+').replace(/_/g, '/');
+  while (b64.length % 4) b64 += '=';
+  var bin = atob(b64);
+  var bytes = new Uint8Array(bin.length);
+  for (var i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return bytes;
+}
+function bufToB64url(buf) {
+  var bytes = new Uint8Array(buf);
+  var bin = '';
+  for (var i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+  return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+if (!pushSupported()) { bellBtn.style.display = 'none'; }
+async function postSubscription(sub) {
+  await api('/subscriptions', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ endpoint: sub.endpoint,
+      keys: { p256dh: bufToB64url(sub.getKey('p256dh')), auth: bufToB64url(sub.getKey('auth')) },
+      name: who }) });
+}
+async function updateBell() {
+  try {
+    var reg = await navigator.serviceWorker.getRegistration();
+    var sub = reg ? await reg.pushManager.getSubscription() : null;
+    bellBtn.classList.toggle('on', !!sub);
+  } catch (e) { showErr('Bell check failed: ' + (e && e.message || e)); }
+}
+async function toggleNotifications() {
+  try {
+    var reg = await navigator.serviceWorker.getRegistration();
+    var sub = reg ? await reg.pushManager.getSubscription() : null;
+    if (sub) {
+      await sub.unsubscribe();
+      try {
+        await api('/subscriptions', { method: 'DELETE', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ endpoint: sub.endpoint }) });
+      } catch (e) { /* server cleanup is best effort */ }
+      updateBell();
+      return;
+    }
+    if (!pushSupported()) { alert('Push notifications are not supported in this browser.'); return; }
+    var perm = await Notification.requestPermission();
+    if (perm !== 'granted') { alert('Notifications are blocked. Allow them in Settings to get alerts.'); return; }
+    reg = await navigator.serviceWorker.register('sw.js');
+    sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64urlToBytes(VAPID_PUBLIC_KEY) });
+    await postSubscription(sub);
+    updateBell();
+  } catch (e) { showErr('Could not turn on notifications: ' + (e && e.message || e)); }
+}
+bellBtn.onclick = toggleNotifications;
+// Deliberately no updateBell() at load: the bell's state refreshes on tap, so
+// nothing push-related runs before a user gesture.
 
 function api(path, opts) {
   return fetch('api/items' + path, opts).then(function (r) {
@@ -481,6 +565,33 @@ async function handleApi(request, env, rest) {
     return json({ ok: true });
   }
 
+  // POST/DELETE /api/items/subscriptions — manage Web Push subscriptions.
+  // Table created by migrate6.sql. No fan-out yet: this step only stores
+  // subscriptions when the user taps the bell.
+  if (rest.length === 1 && rest[0] === 'subscriptions') {
+    if (method === 'POST') {
+      let body;
+      try { body = await request.json(); } catch { return badRequest('Invalid JSON'); }
+      const endpoint = (body.endpoint || '').toString();
+      const p256dh = body.keys && body.keys.p256dh ? body.keys.p256dh.toString() : '';
+      const auth = body.keys && body.keys.auth ? body.keys.auth.toString() : '';
+      const name = (body.name || '').toString().trim().slice(0, 60) || null;
+      if (!endpoint || !p256dh || !auth) return badRequest('endpoint and keys required');
+      await db.prepare('INSERT OR REPLACE INTO push_subscriptions (endpoint, p256dh, auth, name, created_at) VALUES (?, ?, ?, ?, ?)')
+        .bind(endpoint, p256dh, auth, name, new Date().toISOString()).run();
+      return json({ ok: true });
+    }
+    if (method === 'DELETE') {
+      let body = {};
+      try { body = await request.json(); } catch { /* endpoint may be absent */ }
+      const endpoint = (body.endpoint || '').toString();
+      if (!endpoint) return badRequest('endpoint required');
+      await db.prepare('DELETE FROM push_subscriptions WHERE endpoint = ?').bind(endpoint).run();
+      return json({ ok: true });
+    }
+    return json({ error: 'Method not allowed' }, 405);
+  }
+
   // GET /api/items  |  POST /api/items
   if (rest.length === 0) {
     if (method === 'GET') {
@@ -598,6 +709,9 @@ export default {
     }
     if (rest[0] === 'api' && rest[1] === 'items') {
       return handleApi(request, env, rest.slice(2));
+    }
+    if (rest.length === 1 && rest[0] === 'sw.js') {
+      return new Response(SW_JS, { headers: { 'Content-Type': 'application/javascript' } });
     }
     return new Response('Not found', { status: 404 });
   },
