@@ -1,7 +1,7 @@
 CREATE TABLE IF NOT EXISTS items (
   id TEXT PRIMARY KEY,
   name TEXT NOT NULL,
-  store TEXT NOT NULL DEFAULT 'either' CHECK (store IN ('heb', 'tjs', 'either')),
+  store TEXT NOT NULL DEFAULT 'either' CHECK (store IN ('heb', 'tjs', 'costco', 'either')),
   checked INTEGER NOT NULL DEFAULT 0,
   urgent INTEGER NOT NULL DEFAULT 0,
   added_by TEXT,

@@ -8,8 +8,8 @@
 // a display name once (stored in localStorage) so items can show who added
 // and who purchased them.
 
-const STORES = ['heb', 'tjs', 'either'];
-const STORE_LABEL = { heb: 'H-E-B', tjs: "Trader Joe's", either: 'Either' };
+const STORES = ['heb', 'tjs', 'costco', 'either'];
+const STORE_LABEL = { heb: 'H-E-B', tjs: "Trader Joe's", costco: 'Costco', either: 'Either' };
 
 const PAGE = `<!DOCTYPE html>
 <html lang="en">
@@ -34,6 +34,7 @@ const PAGE = `<!DOCTYPE html>
   li { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; background: #fff; border-radius: 18px; padding: 14px 14px 14px 12px; margin-bottom: 10px; box-shadow: 0 1px 2px rgba(25,35,25,.05), 0 6px 18px rgba(25,35,25,.06); border-left: 5px solid #d8dcd4; }
   li.s-heb { border-left-color: #2f7de1; }
   li.s-tjs { border-left-color: #e05757; }
+  li.s-costco { border-left-color: #123a7d; }
   li.s-either { border-left-color: #b9c2b5; }
   li.purchased { opacity: .65; }
   .check { width: 34px; height: 34px; border: 2px solid #c3cbc0; border-radius: 50%; flex: none; cursor: pointer; background: #fff; font-size: 18px; line-height: 1; color: #fff; transition: transform .12s ease, background .12s ease; }
@@ -46,6 +47,7 @@ const PAGE = `<!DOCTYPE html>
   .tag { flex: none; font-size: 11.5px; font-weight: 800; text-transform: uppercase; letter-spacing: .4px; padding: 6px 10px; border-radius: 999px; background: #eef0ec; color: #6d746a; }
   .tag.heb { background: #e2efff; color: #1663cc; }
   .tag.tjs { background: #ffe6e6; color: #c74343; }
+  .tag.costco { background: #e4ebfa; color: #1d3f8f; }
   .rowbtn { flex: none; border: none; background: none; font-size: 18px; color: #b3b8b0; padding: 8px 6px; cursor: pointer; }
   .empty { text-align: center; color: #9aa097; margin: 32px; font-size: 15px; line-height: 1.6; }
   footer { position: fixed; bottom: 12px; left: 12px; right: 12px; background: rgba(255,255,255,.98); border-radius: 22px; box-shadow: 0 8px 28px rgba(20,40,25,.16); padding: 12px 12px calc(12px + env(safe-area-inset-bottom)); }
@@ -100,6 +102,7 @@ const PAGE = `<!DOCTYPE html>
     <button class="chip active" data-f="all">All</button>
     <button class="chip" data-f="heb">H-E-B</button>
     <button class="chip" data-f="tjs">Trader Joe&rsquo;s</button>
+    <button class="chip" data-f="costco">Costco</button>
   </div>
 </header>
 <div class="section"><span>To buy</span><button id="selectBtn">Select</button></div>
@@ -113,6 +116,7 @@ const PAGE = `<!DOCTYPE html>
     <button data-s="either" class="active">Either</button>
     <button data-s="heb">H-E-B</button>
     <button data-s="tjs">Trader Joe&rsquo;s</button>
+    <button data-s="costco">Costco</button>
   </div>
   <div class="addrow">
     <input id="itemName" type="text" placeholder="Add an item&hellip;" autocomplete="off" enterkeyhint="done">
@@ -168,7 +172,7 @@ function showErr(msg) {
   errEl.style.display = 'block';
   setTimeout(function () { errEl.style.display = 'none'; }, 3000);
 }
-function storeLabel(s) { return s === 'heb' ? 'H-E-B' : (s === 'tjs' ? "Trader Joe's" : 'Either'); }
+function storeLabel(s) { return s === 'heb' ? 'H-E-B' : (s === 'tjs' ? "Trader Joe's" : (s === 'costco' ? 'Costco' : 'Either')); }
 function fmtDate(iso) {
   if (!iso) return '';
   try { return new Date(iso).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }); }

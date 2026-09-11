@@ -89,6 +89,15 @@ npx wrangler d1 execute grocery-list-db --remote --file=migrate4.sql
 npx wrangler deploy
 ```
 
+Costco support arrived later and needs a table rebuild (SQLite can't widen the
+store CHECK in place). The wrangler `--file` import endpoint has been rejecting
+this account's token, so paste `migrate5.sql` into the D1 console at
+dash.cloudflare.com (D1 > grocery-list-db > Console) and run it once, then:
+
+```bash
+npx wrangler deploy
+```
+
 On first load each phone asks for a display name (stored in that browser only,
 tappable in the header to change). It appears on items as "Added by Johan"
 and "Purchased by Krista", with timestamps.
