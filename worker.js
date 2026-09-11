@@ -218,7 +218,7 @@ function bufToB64url(buf) {
   var bytes = new Uint8Array(buf);
   var bin = '';
   for (var i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
-  return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  return btoa(bin).replace(/\\+/g, '-').replace(/\\//g, '_').replace(/=+$/, '');
 }
 if (!pushSupported()) { bellBtn.style.display = 'none'; }
 // Debug tracer: persistent banner text so a phone tap can report each step.
