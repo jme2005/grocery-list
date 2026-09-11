@@ -1,0 +1,8 @@
+name = "grocery-list"
+main = "worker.js"
+compatibility_date = "2026-09-01"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "grocery-list-db"
+database_id = "REPLACE_WITH_D1_DATABASE_ID"
