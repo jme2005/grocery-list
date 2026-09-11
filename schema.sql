@@ -4,6 +4,8 @@ CREATE TABLE IF NOT EXISTS items (
   store TEXT NOT NULL DEFAULT 'either' CHECK (store IN ('heb', 'tjs', 'either')),
   checked INTEGER NOT NULL DEFAULT 0,
   added_by TEXT,
+  claimed_by TEXT,
+  claimed_at TEXT,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL,
   purchased_by TEXT,

@@ -51,9 +51,12 @@ All endpoints are under `/{LIST_SECRET}/api/items`:
 - `POST /api/items` — `{ "name": "...", "store": "heb" | "tjs" | "either", "added_by": "Johan" }`
 - `PATCH /api/items/:id` — `{ "name"?, "store"?, "checked"? }`; setting `checked: 1`
   also accepts `purchased_by` and stamps `purchased_at`. Setting `checked: 0`
-  restores the item and clears the purchase info.
+  restores the item and clears the purchase info. `{ "claimed": 1, "claimed_by" }`
+  claims an item (stamps `claimed_at`); `{ "claimed": 0 }` releases the claim.
 - `DELETE /api/items/:id`
 - `POST /api/items/clear-checked`
+- `POST /api/items/bulk` — `{ "ids": [...], "op": "claim"|"unclaim"|"purchase"|"restore"|"delete", "by": "Name" }`
+  applies one operation to many items at once (used by Select mode).
 
 ## Upgrading an existing deployment
 
@@ -62,6 +65,13 @@ against the remote database, then redeploy:
 
 ```bash
 npx wrangler d1 execute grocery-list-db --remote --file=migrate.sql
+npx wrangler deploy
+```
+
+Claim support arrived later; if you deployed before it, run once:
+
+```bash
+npx wrangler d1 execute grocery-list-db --remote --file=migrate2.sql
 npx wrangler deploy
 ```
 

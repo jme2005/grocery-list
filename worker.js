@@ -59,6 +59,25 @@ const PAGE = `<!DOCTYPE html>
   .storepick button.active { background: #0e6b3a; color: #fff; border-color: #0e6b3a; }
   #clearBtn { width: 100%; border: none; background: none; color: #d05240; font-size: 15px; font-weight: 700; padding: 8px; cursor: pointer; }
   #err { display: none; background: #d05240; color: #fff; font-size: 14px; font-weight: 700; padding: 10px 16px; text-align: center; }
+  .section { display: flex; align-items: center; justify-content: space-between; }
+  #selectBtn { border: none; background: none; color: #1d9a55; font-size: 14px; font-weight: 800; cursor: pointer; padding: 4px 8px; }
+  .selbox { display: none; width: 26px; height: 26px; border: 2px solid #c3cbc0; border-radius: 8px; flex: none; }
+  body.selecting .selbox { display: block; }
+  body.selecting li.selected .selbox { background: #1d9a55; border-color: #1d9a55; }
+  body.selecting li.selected { background: #e9f5ee; }
+  body.selecting .check, body.selecting .rowbtn { display: none; }
+  .claimbtn.claimed { color: #1d9a55; }
+  .claimedline { color: #1d9a55; font-weight: 600; }
+  footer .bulkactions { display: none; }
+  body.selecting footer .normal { display: none; }
+  body.selecting footer .bulkactions { display: block; }
+  .selcount { text-align: center; font-size: 14px; font-weight: 700; color: #4a5148; margin-bottom: 8px; }
+  .abtns { display: flex; gap: 8px; }
+  .abtns button { flex: 1; padding: 13px 0; font-size: 15px; font-weight: 800; border: none; border-radius: 14px; cursor: pointer; }
+  #bulkClaim { background: #e2efff; color: #1663cc; }
+  #bulkBuy { background: linear-gradient(150deg, #1d9a55, #0e6b3a); color: #fff; }
+  #bulkDel { background: #ffe6e6; color: #c74343; }
+  #bulkCancel { background: #eef0ec; color: #4a5148; }
 </style>
 </head>
 <body>
@@ -74,12 +93,13 @@ const PAGE = `<!DOCTYPE html>
     <button class="chip" data-f="tjs">Trader Joe&rsquo;s</button>
   </div>
 </header>
-<div class="section" id="buyHead">To buy</div>
+<div class="section"><span>To buy</span><button id="selectBtn">Select</button></div>
 <ul id="list"></ul>
 <div class="empty" id="empty" style="display:none">🛒 Nothing to buy yet.<br>Add something below.</div>
 <div class="section" id="purchHead" style="display:none">Purchased</div>
 <ul id="purchased"></ul>
 <footer>
+  <div class="normal">
   <div class="storepick" id="storepick">
     <button data-s="either" class="active">Either</button>
     <button data-s="heb">H-E-B</button>
@@ -90,6 +110,16 @@ const PAGE = `<!DOCTYPE html>
     <button id="addBtn">Add</button>
   </div>
   <button id="clearBtn">Clear purchased</button>
+  </div>
+  <div class="bulkactions">
+    <div class="selcount" id="selCount"></div>
+    <div class="abtns">
+      <button id="bulkClaim">Claim</button>
+      <button id="bulkBuy">Buy</button>
+      <button id="bulkDel">Delete</button>
+      <button id="bulkCancel">Done</button>
+    </div>
+  </div>
 </footer>
 <script>
 var filter = 'all';
@@ -150,11 +180,20 @@ function purchMeta(it) {
 function makeRow(it, purchased) {
   var li = document.createElement('li');
   li.className = (purchased ? 'purchased ' : '') + 's-' + (it.store || 'either');
+  if (selected[it.id]) li.classList.add('selected');
+  li.onclick = function () {
+    if (!selecting || purchased) return;
+    if (selected[it.id]) delete selected[it.id]; else selected[it.id] = 1;
+    li.classList.toggle('selected');
+    updateSel();
+  };
   var check = document.createElement('button');
   check.className = 'check';
   check.setAttribute('aria-label', purchased ? 'restore' : 'mark purchased');
   if (purchased) check.textContent = '\\u2713';
-  check.onclick = function () { toggle(it, purchased); };
+  check.onclick = function (e) { e.stopPropagation(); toggle(it, purchased); };
+  var sel = document.createElement('span');
+  sel.className = 'selbox';
   var mid = document.createElement('div');
   mid.className = 'mid';
   var name = document.createElement('div');
@@ -164,17 +203,76 @@ function makeRow(it, purchased) {
   meta.className = 'meta';
   meta.textContent = purchased ? purchMeta(it) : addedMeta(it);
   mid.appendChild(name); mid.appendChild(meta);
+  if (!purchased && it.claimed_by) {
+    var cl = document.createElement('div');
+    cl.className = 'meta claimedline';
+    cl.textContent = '\\uD83D\\uDE4B Claimed by ' + it.claimed_by + (it.claimed_at ? ' \\u00B7 ' + fmtDate(it.claimed_at) : '');
+    mid.appendChild(cl);
+  }
   var tag = document.createElement('span');
   tag.className = 'tag ' + (it.store === 'either' ? '' : it.store);
   tag.textContent = storeLabel(it.store);
+  li.appendChild(check); li.appendChild(sel); li.appendChild(mid); li.appendChild(tag);
+  if (!purchased) {
+    var claim = document.createElement('button');
+    claim.className = 'rowbtn claimbtn' + (it.claimed_by ? ' claimed' : '');
+    claim.textContent = '\\uD83D\\uDE4B';
+    claim.setAttribute('aria-label', 'claim');
+    claim.title = it.claimed_by ? 'Claimed by ' + it.claimed_by : 'Claim this item';
+    claim.onclick = function (e) { e.stopPropagation(); claimItem(it); };
+    li.appendChild(claim);
+  }
   var del = document.createElement('button');
   del.className = 'rowbtn';
   del.textContent = '\\u00D7';
   del.setAttribute('aria-label', 'delete');
-  del.onclick = function () { remove(it); };
-  li.appendChild(check); li.appendChild(mid); li.appendChild(tag); li.appendChild(del);
+  del.onclick = function (e) { e.stopPropagation(); remove(it); };
+  li.appendChild(del);
   return li;
 }
+
+function claimItem(it) {
+  var body = it.claimed_by ? { claimed: 0 } : { claimed: 1, claimed_by: who };
+  api('/' + it.id, { method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body) })
+    .then(refresh).catch(function () { showErr('Could not update item'); });
+}
+
+var selecting = false;
+var selected = {};
+function updateSel() {
+  var n = Object.keys(selected).length;
+  document.getElementById('selCount').textContent = n === 0 ? 'Tap items to select' : n + ' selected';
+}
+function endSelect() {
+  selecting = false; selected = {};
+  document.body.classList.remove('selecting');
+  render();
+}
+document.getElementById('selectBtn').onclick = function () {
+  selecting = true; selected = {};
+  document.body.classList.add('selecting');
+  render(); updateSel();
+};
+function bulkOp(op, confirmMsg) {
+  var ids = Object.keys(selected);
+  if (!ids.length) return;
+  if (confirmMsg && !confirm(confirmMsg)) return;
+  api('/bulk', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ids: ids, op: op, by: who }) })
+    .then(function () { endSelect(); refresh(); })
+    .catch(function () { showErr('Bulk update failed'); });
+}
+document.getElementById('bulkClaim').onclick = function () { bulkOp('claim'); };
+document.getElementById('bulkBuy').onclick = function () {
+  var n = Object.keys(selected).length;
+  bulkOp('purchase', 'Mark ' + n + (n === 1 ? ' item' : ' items') + ' as purchased?');
+};
+document.getElementById('bulkDel').onclick = function () {
+  var n = Object.keys(selected).length;
+  bulkOp('delete', 'Delete ' + n + (n === 1 ? ' item' : ' items') + '?');
+};
+document.getElementById('bulkCancel').onclick = endSelect;
 
 function render() {
   listEl.innerHTML = '';
@@ -273,6 +371,32 @@ async function handleApi(request, env, rest) {
   const method = request.method;
   const db = env.DB;
 
+  // POST /api/items/bulk — { ids: [...], op: 'claim'|'unclaim'|'purchase'|'restore'|'delete', by }
+  if (rest.length === 1 && rest[0] === 'bulk') {
+    if (method !== 'POST') return json({ error: 'Method not allowed' }, 405);
+    let body;
+    try { body = await request.json(); } catch { return badRequest('Invalid JSON'); }
+    const ids = Array.isArray(body.ids)
+      ? body.ids.filter(function (x) { return typeof x === 'string'; }).slice(0, 200)
+      : [];
+    const op = body.op;
+    const by = (body.by || '').toString().trim().slice(0, 60) || null;
+    if (!ids.length) return badRequest('ids required');
+    if (['claim', 'unclaim', 'purchase', 'restore', 'delete'].indexOf(op) < 0) return badRequest('bad op');
+    const now = new Date().toISOString();
+    const stmts = ids.map(function (id) {
+      switch (op) {
+        case 'claim': return db.prepare('UPDATE items SET claimed_by = ?, claimed_at = ?, updated_at = ? WHERE id = ?').bind(by, now, now, id);
+        case 'unclaim': return db.prepare('UPDATE items SET claimed_by = NULL, claimed_at = NULL, updated_at = ? WHERE id = ?').bind(now, id);
+        case 'purchase': return db.prepare('UPDATE items SET checked = 1, purchased_by = ?, purchased_at = ?, updated_at = ? WHERE id = ?').bind(by, now, now, id);
+        case 'restore': return db.prepare('UPDATE items SET checked = 0, purchased_by = NULL, purchased_at = NULL, updated_at = ? WHERE id = ?').bind(now, id);
+        case 'delete': return db.prepare('DELETE FROM items WHERE id = ?').bind(id);
+      }
+    });
+    await db.batch(stmts);
+    return json({ ok: true, count: ids.length });
+  }
+
   // POST /api/items/clear-checked
   if (rest.length === 1 && rest[0] === 'clear-checked') {
     if (method !== 'POST') return json({ error: 'Method not allowed' }, 405);
@@ -284,7 +408,7 @@ async function handleApi(request, env, rest) {
   if (rest.length === 0) {
     if (method === 'GET') {
       const rows = await db
-        .prepare('SELECT id, name, store, checked, added_by, created_at, updated_at, purchased_by, purchased_at FROM items ORDER BY checked ASC, created_at ASC')
+        .prepare('SELECT id, name, store, checked, added_by, claimed_by, claimed_at, created_at, updated_at, purchased_by, purchased_at FROM items ORDER BY checked ASC, created_at ASC')
         .all();
       return json(rows.results || []);
     }
@@ -324,6 +448,16 @@ async function handleApi(request, env, rest) {
         const store = body.store.toString();
         if (!STORES.includes(store)) return badRequest('store must be heb, tjs, or either');
         sets.push('store = ?'); binds.push(store);
+      }
+      if (body.claimed !== undefined) {
+        if (body.claimed) {
+          const claimedBy = (body.claimed_by || '').toString().trim().slice(0, 60) || null;
+          sets.push('claimed_by = ?'); binds.push(claimedBy);
+          sets.push('claimed_at = ?'); binds.push(new Date().toISOString());
+        } else {
+          sets.push('claimed_by = NULL');
+          sets.push('claimed_at = NULL');
+        }
       }
       if (body.checked !== undefined) {
         const checked = body.checked ? 1 : 0;
