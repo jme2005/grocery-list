@@ -3,6 +3,7 @@ CREATE TABLE IF NOT EXISTS items (
   name TEXT NOT NULL,
   store TEXT NOT NULL DEFAULT 'either' CHECK (store IN ('heb', 'tjs', 'either')),
   checked INTEGER NOT NULL DEFAULT 0,
+  urgent INTEGER NOT NULL DEFAULT 0,
   added_by TEXT,
   claimed_by TEXT,
   claimed_at TEXT,

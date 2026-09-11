@@ -78,6 +78,11 @@ const PAGE = `<!DOCTYPE html>
   #bulkBuy { background: linear-gradient(150deg, #1d9a55, #0e6b3a); color: #fff; }
   #bulkDel { background: #ffe6e6; color: #c74343; }
   #bulkCancel { background: #eef0ec; color: #4a5148; }
+  li.urgent { border-left-color: #e05240; }
+  .utag { flex: none; font-size: 11.5px; font-weight: 800; text-transform: uppercase; letter-spacing: .4px; padding: 6px 10px; border-radius: 999px; background: #ffe6e6; color: #c74343; }
+  .urgentbtn { opacity: .35; }
+  .urgentbtn.on { opacity: 1; }
+  #bulkUrgent { background: #fff3e0; color: #d97a1f; }
 </style>
 </head>
 <body>
@@ -115,6 +120,7 @@ const PAGE = `<!DOCTYPE html>
     <div class="selcount" id="selCount"></div>
     <div class="abtns">
       <button id="bulkClaim">Claim</button>
+      <button id="bulkUrgent">Urgent</button>
       <button id="bulkBuy">Buy</button>
       <button id="bulkDel">Delete</button>
       <button id="bulkCancel">Done</button>
@@ -212,8 +218,23 @@ function makeRow(it, purchased) {
   var tag = document.createElement('span');
   tag.className = 'tag ' + (it.store === 'either' ? '' : it.store);
   tag.textContent = storeLabel(it.store);
-  li.appendChild(check); li.appendChild(sel); li.appendChild(mid); li.appendChild(tag);
+  li.appendChild(check); li.appendChild(sel); li.appendChild(mid);
+  if (!purchased && it.urgent) {
+    li.classList.add('urgent');
+    var utag = document.createElement('span');
+    utag.className = 'utag';
+    utag.textContent = '\\u26A1 Urgent';
+    li.appendChild(utag);
+  }
+  li.appendChild(tag);
   if (!purchased) {
+    var urgent = document.createElement('button');
+    urgent.className = 'rowbtn urgentbtn' + (it.urgent ? ' on' : '');
+    urgent.textContent = '\\u26A1';
+    urgent.setAttribute('aria-label', 'toggle urgent');
+    urgent.title = 'Mark urgent';
+    urgent.onclick = function (e) { e.stopPropagation(); toggleUrgent(it); };
+    li.appendChild(urgent);
     var claim = document.createElement('button');
     claim.className = 'rowbtn claimbtn' + (it.claimed_by ? ' claimed' : '');
     claim.textContent = '\\uD83D\\uDE4B';
@@ -242,6 +263,12 @@ function claimItem(it) {
   if (when === null) return;
   api('/' + it.id, { method: 'PATCH', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ claimed: 1, claimed_by: who, claim_when: when.trim() }) })
+    .then(refresh).catch(function () { showErr('Could not update item'); });
+}
+
+function toggleUrgent(it) {
+  api('/' + it.id, { method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ urgent: it.urgent ? 0 : 1 }) })
     .then(refresh).catch(function () { showErr('Could not update item'); });
 }
 
@@ -280,6 +307,7 @@ document.getElementById('bulkClaim').onclick = function () {
     .then(function () { endSelect(); refresh(); })
     .catch(function () { showErr('Bulk update failed'); });
 };
+document.getElementById('bulkUrgent').onclick = function () { bulkOp('urgent'); };
 document.getElementById('bulkBuy').onclick = function () {
   var n = Object.keys(selected).length;
   bulkOp('purchase', 'Mark ' + n + (n === 1 ? ' item' : ' items') + ' as purchased?');
@@ -399,7 +427,7 @@ async function handleApi(request, env, rest) {
     const by = (body.by || '').toString().trim().slice(0, 60) || null;
     const when = (body.when || '').toString().trim().slice(0, 60) || null;
     if (!ids.length) return badRequest('ids required');
-    if (['claim', 'unclaim', 'purchase', 'restore', 'delete'].indexOf(op) < 0) return badRequest('bad op');
+    if (['claim', 'unclaim', 'purchase', 'restore', 'delete', 'urgent', 'unurgent'].indexOf(op) < 0) return badRequest('bad op');
     const now = new Date().toISOString();
     const stmts = ids.map(function (id) {
       switch (op) {
@@ -408,6 +436,8 @@ async function handleApi(request, env, rest) {
         case 'purchase': return db.prepare('UPDATE items SET checked = 1, purchased_by = ?, purchased_at = ?, updated_at = ? WHERE id = ?').bind(by, now, now, id);
         case 'restore': return db.prepare('UPDATE items SET checked = 0, purchased_by = NULL, purchased_at = NULL, updated_at = ? WHERE id = ?').bind(now, id);
         case 'delete': return db.prepare('DELETE FROM items WHERE id = ?').bind(id);
+        case 'urgent': return db.prepare('UPDATE items SET urgent = 1, updated_at = ? WHERE id = ?').bind(now, id);
+        case 'unurgent': return db.prepare('UPDATE items SET urgent = 0, updated_at = ? WHERE id = ?').bind(now, id);
       }
     });
     await db.batch(stmts);
@@ -425,7 +455,7 @@ async function handleApi(request, env, rest) {
   if (rest.length === 0) {
     if (method === 'GET') {
       const rows = await db
-        .prepare('SELECT id, name, store, checked, added_by, claimed_by, claimed_at, claim_when, created_at, updated_at, purchased_by, purchased_at FROM items ORDER BY checked ASC, created_at ASC')
+        .prepare('SELECT id, name, store, checked, urgent, added_by, claimed_by, claimed_at, claim_when, created_at, updated_at, purchased_by, purchased_at FROM items ORDER BY checked ASC, urgent DESC, created_at ASC')
         .all();
       return json(rows.results || []);
     }
@@ -466,6 +496,9 @@ async function handleApi(request, env, rest) {
         if (!STORES.includes(store)) return badRequest('store must be heb, tjs, or either');
         sets.push('store = ?'); binds.push(store);
       }
+      if (body.urgent !== undefined) {
+        sets.push('urgent = ?'); binds.push(body.urgent ? 1 : 0);
+      }
       if (body.claimed !== undefined) {
         if (body.claimed) {
           const claimedBy = (body.claimed_by || '').toString().trim().slice(0, 60) || null;
@@ -486,6 +519,7 @@ async function handleApi(request, env, rest) {
           const purchasedBy = (body.purchased_by || '').toString().trim().slice(0, 60) || null;
           sets.push('purchased_by = ?'); binds.push(purchasedBy);
           sets.push('purchased_at = ?'); binds.push(new Date().toISOString());
+          sets.push('urgent = 0');
         } else {
           sets.push('purchased_by = NULL');
           sets.push('purchased_at = NULL');
