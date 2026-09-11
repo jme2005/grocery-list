@@ -320,12 +320,9 @@ var errEl = document.getElementById('err');
 var whoBtn = document.getElementById('whoBtn');
 
 function ensureWho() {
-  if (!who) {
-    var n = prompt('Your name (shown on items you add/buy):', '');
-    if (n && n.trim()) { who = n.trim(); localStorage.setItem('groceryWho', who); }
-    else { who = 'Someone'; }
-  }
-  whoBtn.textContent = who;
+  // Never prompt() at page load: on iOS it freezes the page before any
+  // button gets wired up. The header name button handles setup on tap.
+  whoBtn.textContent = who || 'Set name';
 }
 whoBtn.onclick = function () {
   var n = prompt('Your name:', who);
