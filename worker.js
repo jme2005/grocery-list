@@ -219,6 +219,11 @@ function bufToB64url(buf) {
   return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
 if (!pushSupported()) { bellBtn.style.display = 'none'; }
+// Debug tracer: persistent banner text so a phone tap can report each step.
+function bellSay(msg) {
+  errEl.textContent = msg;
+  errEl.style.display = 'block';
+}
 async function postSubscription(sub) {
   await api('/subscriptions', { method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ endpoint: sub.endpoint,
@@ -230,12 +235,15 @@ async function updateBell() {
     var reg = await navigator.serviceWorker.getRegistration();
     var sub = reg ? await reg.pushManager.getSubscription() : null;
     bellBtn.classList.toggle('on', !!sub);
-  } catch (e) { showErr('Bell check failed: ' + (e && e.message || e)); }
+  } catch (e) { bellSay('bell check FAILED: ' + (e && e.message || e)); }
 }
 async function toggleNotifications() {
+  bellSay('bell: tap received');
   try {
     var reg = await navigator.serviceWorker.getRegistration();
+    bellSay('bell: registration ' + (reg ? 'found' : 'none'));
     var sub = reg ? await reg.pushManager.getSubscription() : null;
+    bellSay('bell: subscription ' + (sub ? 'found' : 'none'));
     if (sub) {
       await sub.unsubscribe();
       try {
@@ -243,16 +251,23 @@ async function toggleNotifications() {
           body: JSON.stringify({ endpoint: sub.endpoint }) });
       } catch (e) { /* server cleanup is best effort */ }
       updateBell();
+      bellSay('bell: unsubscribed');
       return;
     }
     if (!pushSupported()) { alert('Push notifications are not supported in this browser.'); return; }
+    bellSay('bell: requesting permission');
     var perm = await Notification.requestPermission();
+    bellSay('bell: permission ' + perm);
     if (perm !== 'granted') { alert('Notifications are blocked. Allow them in Settings to get alerts.'); return; }
+    bellSay('bell: registering service worker');
     reg = await navigator.serviceWorker.register('sw.js');
+    bellSay('bell: subscribing');
     sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64urlToBytes(VAPID_PUBLIC_KEY) });
+    bellSay('bell: saving subscription');
     await postSubscription(sub);
     updateBell();
-  } catch (e) { showErr('Could not turn on notifications: ' + (e && e.message || e)); }
+    bellSay('bell: on');
+  } catch (e) { bellSay('bell FAILED: ' + (e && e.message || e)); }
 }
 bellBtn.onclick = toggleNotifications;
 // Deliberately no updateBell() at load: the bell's state refreshes on tap, so
