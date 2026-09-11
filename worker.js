@@ -19,45 +19,53 @@ const PAGE = `<!DOCTYPE html>
 <title>Grocery List</title>
 <style>
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
-  body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif; background: #eef3ee; color: #1c1c1e; padding-bottom: 170px; }
-  header { position: sticky; top: 0; z-index: 10; background: linear-gradient(135deg, #157f47, #0b5a34); color: #fff; padding: calc(14px + env(safe-area-inset-top)) 16px 14px; box-shadow: 0 2px 8px rgba(0,0,0,.18); }
+  body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif; background: #f4f2ec; color: #20241f; padding-bottom: 200px; }
+  header { position: sticky; top: 0; z-index: 10; background: linear-gradient(150deg, #1d9a55 0%, #0e6b3a 60%, #0a4f2c 100%); color: #fff; padding: calc(16px + env(safe-area-inset-top)) 18px 16px; box-shadow: 0 2px 12px rgba(10,60,35,.35); }
   .headrow { display: flex; align-items: center; justify-content: space-between; }
-  h1 { margin: 0; font-size: 22px; font-weight: 700; letter-spacing: -0.3px; }
-  #whoBtn { border: 1px solid rgba(255,255,255,.5); background: rgba(255,255,255,.15); color: #fff; font-size: 14px; padding: 7px 12px; border-radius: 999px; cursor: pointer; }
-  .chips { display: flex; gap: 8px; margin-top: 12px; }
-  .chip { flex: 1; padding: 10px 0; border: none; border-radius: 999px; background: rgba(255,255,255,.18); color: #fff; font-size: 15px; font-weight: 600; text-align: center; cursor: pointer; }
-  .chip.active { background: #fff; color: #0b5a34; }
-  .section { margin: 18px 12px 0; font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: .6px; color: #6b7a6f; }
-  ul { list-style: none; margin: 8px 0 0; padding: 0 12px; }
-  li { display: flex; align-items: center; gap: 12px; background: #fff; border-radius: 16px; padding: 13px 14px; margin-bottom: 10px; box-shadow: 0 1px 3px rgba(20,40,25,.08); }
-  li.purchased { opacity: .75; }
-  .check { width: 32px; height: 32px; border: 2px solid #c4cec6; border-radius: 50%; flex: none; cursor: pointer; background: #fff; font-size: 18px; line-height: 1; color: #fff; }
-  li.purchased .check { background: #1a9e54; border-color: #1a9e54; }
+  h1 { margin: 0; font-size: 24px; font-weight: 800; letter-spacing: -0.5px; }
+  .sub { font-size: 13px; opacity: .85; margin-top: 2px; font-weight: 500; }
+  #whoBtn { border: 1px solid rgba(255,255,255,.45); background: rgba(255,255,255,.16); color: #fff; font-size: 14px; font-weight: 600; padding: 8px 14px; border-radius: 999px; cursor: pointer; transition: transform .12s ease; }
+  #whoBtn:active { transform: scale(.94); }
+  .chips { display: flex; gap: 8px; margin-top: 14px; }
+  .chip { flex: 1; padding: 11px 0; border: none; border-radius: 999px; background: rgba(255,255,255,.16); color: #fff; font-size: 15px; font-weight: 700; text-align: center; cursor: pointer; transition: all .15s ease; }
+  .chip.active { background: #fff; color: #0b5a34; box-shadow: 0 2px 6px rgba(0,0,0,.2); }
+  .section { margin: 20px 16px 0; font-size: 12px; font-weight: 800; text-transform: uppercase; letter-spacing: 1px; color: #979d94; }
+  ul { list-style: none; margin: 10px 0 0; padding: 0 14px; }
+  li { display: flex; align-items: center; gap: 12px; background: #fff; border-radius: 18px; padding: 14px 14px 14px 12px; margin-bottom: 10px; box-shadow: 0 1px 2px rgba(25,35,25,.05), 0 6px 18px rgba(25,35,25,.06); border-left: 5px solid #d8dcd4; }
+  li.s-heb { border-left-color: #2f7de1; }
+  li.s-tjs { border-left-color: #e05757; }
+  li.s-either { border-left-color: #b9c2b5; }
+  li.purchased { opacity: .65; }
+  .check { width: 34px; height: 34px; border: 2px solid #c3cbc0; border-radius: 50%; flex: none; cursor: pointer; background: #fff; font-size: 18px; line-height: 1; color: #fff; transition: transform .12s ease, background .12s ease; }
+  .check:active { transform: scale(.85); }
+  li.purchased .check { background: #1d9a55; border-color: #1d9a55; }
   .mid { flex: 1; min-width: 0; }
-  .name { font-size: 17px; font-weight: 600; word-break: break-word; }
-  li.purchased .name { text-decoration: line-through; color: #8e8e93; font-weight: 400; }
-  .meta { font-size: 12.5px; color: #8a938c; margin-top: 3px; }
-  .tag { flex: none; font-size: 12px; font-weight: 700; padding: 5px 10px; border-radius: 999px; background: #eef0ee; color: #636366; }
-  .tag.heb { background: #e3efff; color: #0a5fd7; }
-  .tag.tjs { background: #ffe7e7; color: #c0392b; }
-  .rowbtn { flex: none; border: none; background: none; font-size: 17px; color: #a7b0a9; padding: 8px 6px; cursor: pointer; }
-  .empty { text-align: center; color: #8a938c; margin: 28px 24px; font-size: 15px; }
-  footer { position: fixed; bottom: 0; left: 0; right: 0; background: rgba(255,255,255,.96); backdrop-filter: blur(8px); border-top: 1px solid #dde4dd; padding: 10px 12px calc(10px + env(safe-area-inset-bottom)); }
-  .addrow { display: flex; gap: 8px; margin-bottom: 8px; }
-  #itemName { flex: 1; font-size: 17px; padding: 13px 14px; border: 1px solid #cfd8d0; border-radius: 14px; background: #f7faf7; }
-  #addBtn { font-size: 17px; font-weight: 700; padding: 13px 20px; border: none; border-radius: 14px; background: #157f47; color: #fff; cursor: pointer; }
-  .storepick { display: flex; gap: 8px; margin-bottom: 8px; }
-  .storepick button { flex: 1; padding: 10px 0; font-size: 14px; font-weight: 600; border: 1px solid #cfd8d0; border-radius: 12px; background: #fff; color: #3c443e; cursor: pointer; }
-  .storepick button.active { background: #157f47; color: #fff; border-color: #157f47; }
-  #clearBtn { width: 100%; border: none; background: none; color: #d43d2a; font-size: 15px; font-weight: 600; padding: 6px; cursor: pointer; }
-  #err { display: none; background: #d43d2a; color: #fff; font-size: 14px; font-weight: 600; padding: 10px 16px; text-align: center; }
+  .name { font-size: 17px; font-weight: 600; letter-spacing: -0.2px; word-break: break-word; }
+  li.purchased .name { text-decoration: line-through; color: #9a9d98; font-weight: 400; }
+  .meta { font-size: 12.5px; color: #8f948c; margin-top: 3px; }
+  .tag { flex: none; font-size: 11.5px; font-weight: 800; text-transform: uppercase; letter-spacing: .4px; padding: 6px 10px; border-radius: 999px; background: #eef0ec; color: #6d746a; }
+  .tag.heb { background: #e2efff; color: #1663cc; }
+  .tag.tjs { background: #ffe6e6; color: #c74343; }
+  .rowbtn { flex: none; border: none; background: none; font-size: 18px; color: #b3b8b0; padding: 8px 6px; cursor: pointer; }
+  .empty { text-align: center; color: #9aa097; margin: 32px; font-size: 15px; line-height: 1.6; }
+  footer { position: fixed; bottom: 12px; left: 12px; right: 12px; background: rgba(255,255,255,.98); border-radius: 22px; box-shadow: 0 8px 28px rgba(20,40,25,.16); padding: 12px 12px calc(12px + env(safe-area-inset-bottom)); }
+  .addrow { display: flex; gap: 8px; margin-bottom: 10px; }
+  #itemName { flex: 1; font-size: 17px; padding: 14px 16px; border: 1.5px solid #d5dad2; border-radius: 16px; background: #f7f9f5; outline: none; }
+  #itemName:focus { border-color: #1d9a55; background: #fff; }
+  #addBtn { font-size: 17px; font-weight: 800; padding: 14px 22px; border: none; border-radius: 16px; background: linear-gradient(150deg, #1d9a55, #0e6b3a); color: #fff; cursor: pointer; box-shadow: 0 3px 10px rgba(20,120,65,.35); transition: transform .12s ease; }
+  #addBtn:active { transform: scale(.95); }
+  .storepick { display: flex; gap: 8px; margin-bottom: 10px; }
+  .storepick button { flex: 1; padding: 11px 0; font-size: 14px; font-weight: 700; border: 1.5px solid #d5dad2; border-radius: 14px; background: #fff; color: #4a5148; cursor: pointer; transition: all .12s ease; }
+  .storepick button.active { background: #0e6b3a; color: #fff; border-color: #0e6b3a; }
+  #clearBtn { width: 100%; border: none; background: none; color: #d05240; font-size: 15px; font-weight: 700; padding: 8px; cursor: pointer; }
+  #err { display: none; background: #d05240; color: #fff; font-size: 14px; font-weight: 700; padding: 10px 16px; text-align: center; }
 </style>
 </head>
 <body>
 <div id="err"></div>
 <header>
   <div class="headrow">
-    <h1>Grocery List</h1>
+    <div><h1>🧺 Grocery List</h1><div class="sub" id="buyCount"></div></div>
     <button id="whoBtn" aria-label="change name"></button>
   </div>
   <div class="chips" id="filters">
@@ -68,7 +76,7 @@ const PAGE = `<!DOCTYPE html>
 </header>
 <div class="section" id="buyHead">To buy</div>
 <ul id="list"></ul>
-<div class="empty" id="empty" style="display:none">Nothing to buy. Add something below.</div>
+<div class="empty" id="empty" style="display:none">🛒 Nothing to buy yet.<br>Add something below.</div>
 <div class="section" id="purchHead" style="display:none">Purchased</div>
 <ul id="purchased"></ul>
 <footer>
@@ -141,7 +149,7 @@ function purchMeta(it) {
 
 function makeRow(it, purchased) {
   var li = document.createElement('li');
-  if (purchased) li.className = 'purchased';
+  li.className = (purchased ? 'purchased ' : '') + 's-' + (it.store || 'either');
   var check = document.createElement('button');
   check.className = 'check';
   check.setAttribute('aria-label', purchased ? 'restore' : 'mark purchased');
@@ -178,6 +186,9 @@ function render() {
   active.sort(function (a, b) { return a.created_at < b.created_at ? -1 : 1; });
   bought.sort(function (a, b) { return (a.purchased_at || '') < (b.purchased_at || '') ? 1 : -1; });
   emptyEl.style.display = active.length ? 'none' : 'block';
+  var buyCount = document.getElementById('buyCount');
+  buyCount.textContent = active.length === 0 ? 'All done 🎉' :
+    active.length + (active.length === 1 ? ' item to buy' : ' items to buy');
   active.forEach(function (it) { listEl.appendChild(makeRow(it, false)); });
   purchHead.style.display = bought.length ? 'block' : 'none';
   purchHead.textContent = 'Purchased (' + bought.length + ')';
