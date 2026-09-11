@@ -6,6 +6,7 @@ CREATE TABLE IF NOT EXISTS items (
   added_by TEXT,
   claimed_by TEXT,
   claimed_at TEXT,
+  claim_when TEXT,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL,
   purchased_by TEXT,

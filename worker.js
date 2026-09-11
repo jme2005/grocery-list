@@ -206,7 +206,7 @@ function makeRow(it, purchased) {
   if (!purchased && it.claimed_by) {
     var cl = document.createElement('div');
     cl.className = 'meta claimedline';
-    cl.textContent = '\\uD83D\\uDE4B Claimed by ' + it.claimed_by + (it.claimed_at ? ' \\u00B7 ' + fmtDate(it.claimed_at) : '');
+    cl.textContent = '\\uD83D\\uDE4B ' + it.claimed_by + ' will get this' + (it.claim_when ? ' \\u00B7 ' + it.claim_when : '');
     mid.appendChild(cl);
   }
   var tag = document.createElement('span');
@@ -218,7 +218,7 @@ function makeRow(it, purchased) {
     claim.className = 'rowbtn claimbtn' + (it.claimed_by ? ' claimed' : '');
     claim.textContent = '\\uD83D\\uDE4B';
     claim.setAttribute('aria-label', 'claim');
-    claim.title = it.claimed_by ? 'Claimed by ' + it.claimed_by : 'Claim this item';
+    claim.title = it.claimed_by ? it.claimed_by + ' will get this' + (it.claim_when ? ' \\u00B7 ' + it.claim_when : '') : 'Claim this item';
     claim.onclick = function (e) { e.stopPropagation(); claimItem(it); };
     li.appendChild(claim);
   }
@@ -232,9 +232,16 @@ function makeRow(it, purchased) {
 }
 
 function claimItem(it) {
-  var body = it.claimed_by ? { claimed: 0 } : { claimed: 1, claimed_by: who };
+  if (it.claimed_by) {
+    api('/' + it.id, { method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ claimed: 0 }) })
+      .then(refresh).catch(function () { showErr('Could not update item'); });
+    return;
+  }
+  var when = prompt('When will you get "' + it.name + '"?', 'today');
+  if (when === null) return;
   api('/' + it.id, { method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body) })
+    body: JSON.stringify({ claimed: 1, claimed_by: who, claim_when: when.trim() }) })
     .then(refresh).catch(function () { showErr('Could not update item'); });
 }
 
@@ -263,7 +270,16 @@ function bulkOp(op, confirmMsg) {
     .then(function () { endSelect(); refresh(); })
     .catch(function () { showErr('Bulk update failed'); });
 }
-document.getElementById('bulkClaim').onclick = function () { bulkOp('claim'); };
+document.getElementById('bulkClaim').onclick = function () {
+  var ids = Object.keys(selected);
+  if (!ids.length) return;
+  var when = prompt('When will you get these ' + ids.length + (ids.length === 1 ? ' item' : ' items') + '?', 'today');
+  if (when === null) return;
+  api('/bulk', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ids: ids, op: 'claim', by: who, when: when.trim() }) })
+    .then(function () { endSelect(); refresh(); })
+    .catch(function () { showErr('Bulk update failed'); });
+};
 document.getElementById('bulkBuy').onclick = function () {
   var n = Object.keys(selected).length;
   bulkOp('purchase', 'Mark ' + n + (n === 1 ? ' item' : ' items') + ' as purchased?');
@@ -381,13 +397,14 @@ async function handleApi(request, env, rest) {
       : [];
     const op = body.op;
     const by = (body.by || '').toString().trim().slice(0, 60) || null;
+    const when = (body.when || '').toString().trim().slice(0, 60) || null;
     if (!ids.length) return badRequest('ids required');
     if (['claim', 'unclaim', 'purchase', 'restore', 'delete'].indexOf(op) < 0) return badRequest('bad op');
     const now = new Date().toISOString();
     const stmts = ids.map(function (id) {
       switch (op) {
-        case 'claim': return db.prepare('UPDATE items SET claimed_by = ?, claimed_at = ?, updated_at = ? WHERE id = ?').bind(by, now, now, id);
-        case 'unclaim': return db.prepare('UPDATE items SET claimed_by = NULL, claimed_at = NULL, updated_at = ? WHERE id = ?').bind(now, id);
+        case 'claim': return db.prepare('UPDATE items SET claimed_by = ?, claimed_at = ?, claim_when = ?, updated_at = ? WHERE id = ?').bind(by, now, when, now, id);
+        case 'unclaim': return db.prepare('UPDATE items SET claimed_by = NULL, claimed_at = NULL, claim_when = NULL, updated_at = ? WHERE id = ?').bind(now, id);
         case 'purchase': return db.prepare('UPDATE items SET checked = 1, purchased_by = ?, purchased_at = ?, updated_at = ? WHERE id = ?').bind(by, now, now, id);
         case 'restore': return db.prepare('UPDATE items SET checked = 0, purchased_by = NULL, purchased_at = NULL, updated_at = ? WHERE id = ?').bind(now, id);
         case 'delete': return db.prepare('DELETE FROM items WHERE id = ?').bind(id);
@@ -408,7 +425,7 @@ async function handleApi(request, env, rest) {
   if (rest.length === 0) {
     if (method === 'GET') {
       const rows = await db
-        .prepare('SELECT id, name, store, checked, added_by, claimed_by, claimed_at, created_at, updated_at, purchased_by, purchased_at FROM items ORDER BY checked ASC, created_at ASC')
+        .prepare('SELECT id, name, store, checked, added_by, claimed_by, claimed_at, claim_when, created_at, updated_at, purchased_by, purchased_at FROM items ORDER BY checked ASC, created_at ASC')
         .all();
       return json(rows.results || []);
     }
@@ -452,11 +469,14 @@ async function handleApi(request, env, rest) {
       if (body.claimed !== undefined) {
         if (body.claimed) {
           const claimedBy = (body.claimed_by || '').toString().trim().slice(0, 60) || null;
+          const claimWhen = (body.claim_when || '').toString().trim().slice(0, 60) || null;
           sets.push('claimed_by = ?'); binds.push(claimedBy);
           sets.push('claimed_at = ?'); binds.push(new Date().toISOString());
+          sets.push('claim_when = ?'); binds.push(claimWhen);
         } else {
           sets.push('claimed_by = NULL');
           sets.push('claimed_at = NULL');
+          sets.push('claim_when = NULL');
         }
       }
       if (body.checked !== undefined) {
