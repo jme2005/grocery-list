@@ -48,10 +48,26 @@ on both phones.
 All endpoints are under `/{LIST_SECRET}/api/items`:
 
 - `GET /api/items` — list all items (unchecked first)
-- `POST /api/items` — `{ "name": "...", "store": "heb" | "tjs" | "either" }`
-- `PATCH /api/items/:id` — `{ "name"?, "store"?, "checked"? }`
+- `POST /api/items` — `{ "name": "...", "store": "heb" | "tjs" | "either", "added_by": "Johan" }`
+- `PATCH /api/items/:id` — `{ "name"?, "store"?, "checked"? }`; setting `checked: 1`
+  also accepts `purchased_by` and stamps `purchased_at`. Setting `checked: 0`
+  restores the item and clears the purchase info.
 - `DELETE /api/items/:id`
 - `POST /api/items/clear-checked`
+
+## Upgrading an existing deployment
+
+If you deployed before the who/when columns existed, run the migration once
+against the remote database, then redeploy:
+
+```bash
+npx wrangler d1 execute grocery-list-db --remote --file=migrate.sql
+npx wrangler deploy
+```
+
+On first load each phone asks for a display name (stored in that browser only,
+tappable in the header to change). It appears on items as "Added by Johan"
+and "Purchased by Krista", with timestamps.
 
 ## Notes
 
