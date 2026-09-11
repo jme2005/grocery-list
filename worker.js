@@ -189,6 +189,7 @@ function refresh() {
     .catch(function () { showErr('Could not sync list'); });
 }
 function toggle(it, purchased) {
+  if (!purchased && !confirm('Marked as purchased?')) return;
   var body = purchased
     ? { checked: 0 }
     : { checked: 1, purchased_by: who };
