@@ -31,7 +31,7 @@ const PAGE = `<!DOCTYPE html>
   .chip.active { background: #fff; color: #0b5a34; box-shadow: 0 2px 6px rgba(0,0,0,.2); }
   .section { margin: 20px 16px 0; font-size: 12px; font-weight: 800; text-transform: uppercase; letter-spacing: 1px; color: #979d94; }
   ul { list-style: none; margin: 10px 0 0; padding: 0 14px; }
-  li { display: flex; align-items: center; gap: 12px; background: #fff; border-radius: 18px; padding: 14px 14px 14px 12px; margin-bottom: 10px; box-shadow: 0 1px 2px rgba(25,35,25,.05), 0 6px 18px rgba(25,35,25,.06); border-left: 5px solid #d8dcd4; }
+  li { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; background: #fff; border-radius: 18px; padding: 14px 14px 14px 12px; margin-bottom: 10px; box-shadow: 0 1px 2px rgba(25,35,25,.05), 0 6px 18px rgba(25,35,25,.06); border-left: 5px solid #d8dcd4; }
   li.s-heb { border-left-color: #2f7de1; }
   li.s-tjs { border-left-color: #e05757; }
   li.s-either { border-left-color: #b9c2b5; }
@@ -66,7 +66,13 @@ const PAGE = `<!DOCTYPE html>
   body.selecting li.selected .selbox { background: #1d9a55; border-color: #1d9a55; }
   body.selecting li.selected { background: #e9f5ee; }
   body.selecting .check, body.selecting .rowbtn { display: none; }
-  .claimbtn.claimed { color: #1d9a55; }
+  .actions { flex: 1 1 100%; display: flex; align-items: center; gap: 8px; margin-top: 4px; }
+  .actions .spacer { flex: 1; }
+  .abtn { border: 1.5px solid #d5dad2; background: #f7f9f5; border-radius: 12px; font-size: 14px; font-weight: 700; color: #4a5148; padding: 9px 14px; cursor: pointer; transition: transform .12s ease; }
+  .abtn:active { transform: scale(.95); }
+  .urgentbtn.on { background: #ffe6e6; border-color: #e05240; color: #c74343; }
+  .claimbtn.claimed { background: #e9f5ee; border-color: #1d9a55; color: #0e6b3a; }
+  body.selecting .actions { display: none; }
   .claimedline { color: #1d9a55; font-weight: 600; }
   footer .bulkactions { display: none; }
   body.selecting footer .normal { display: none; }
@@ -80,8 +86,6 @@ const PAGE = `<!DOCTYPE html>
   #bulkCancel { background: #eef0ec; color: #4a5148; }
   li.urgent { border-left-color: #e05240; }
   .utag { flex: none; font-size: 11.5px; font-weight: 800; text-transform: uppercase; letter-spacing: .4px; padding: 6px 10px; border-radius: 999px; background: #ffe6e6; color: #c74343; }
-  .urgentbtn { opacity: .35; }
-  .urgentbtn.on { opacity: 1; }
   #bulkUrgent { background: #fff3e0; color: #d97a1f; }
 </style>
 </head>
@@ -215,40 +219,49 @@ function makeRow(it, purchased) {
     cl.textContent = '\\uD83D\\uDE4B ' + it.claimed_by + ' will get this' + (it.claim_when ? ' \\u00B7 ' + it.claim_when : '');
     mid.appendChild(cl);
   }
-  var tag = document.createElement('span');
-  tag.className = 'tag ' + (it.store === 'either' ? '' : it.store);
-  tag.textContent = storeLabel(it.store);
-  li.appendChild(check); li.appendChild(sel); li.appendChild(mid);
-  if (!purchased && it.urgent) {
-    li.classList.add('urgent');
-    var utag = document.createElement('span');
-    utag.className = 'utag';
-    utag.textContent = '\\u26A1 Urgent';
-    li.appendChild(utag);
-  }
-  li.appendChild(tag);
-  if (!purchased) {
-    var urgent = document.createElement('button');
-    urgent.className = 'rowbtn urgentbtn' + (it.urgent ? ' on' : '');
-    urgent.textContent = '\\u26A1';
-    urgent.setAttribute('aria-label', 'toggle urgent');
-    urgent.title = 'Mark urgent';
-    urgent.onclick = function (e) { e.stopPropagation(); toggleUrgent(it); };
-    li.appendChild(urgent);
-    var claim = document.createElement('button');
-    claim.className = 'rowbtn claimbtn' + (it.claimed_by ? ' claimed' : '');
-    claim.textContent = '\\uD83D\\uDE4B';
-    claim.setAttribute('aria-label', 'claim');
-    claim.title = it.claimed_by ? it.claimed_by + ' will get this' + (it.claim_when ? ' \\u00B7 ' + it.claim_when : '') : 'Claim this item';
-    claim.onclick = function (e) { e.stopPropagation(); claimItem(it); };
-    li.appendChild(claim);
-  }
   var del = document.createElement('button');
-  del.className = 'rowbtn';
+  del.className = 'rowbtn delbtn';
   del.textContent = '\\u00D7';
   del.setAttribute('aria-label', 'delete');
   del.onclick = function (e) { e.stopPropagation(); remove(it); };
-  li.appendChild(del);
+  li.appendChild(check); li.appendChild(sel); li.appendChild(mid); li.appendChild(del);
+  if (!purchased) {
+    var actions = document.createElement('div');
+    actions.className = 'actions';
+    if (it.urgent) {
+      li.classList.add('urgent');
+      var utag = document.createElement('span');
+      utag.className = 'utag';
+      utag.textContent = '\\u26A1 Urgent';
+      actions.appendChild(utag);
+    }
+    var tag = document.createElement('span');
+    tag.className = 'tag ' + (it.store === 'either' ? '' : it.store);
+    tag.textContent = storeLabel(it.store);
+    actions.appendChild(tag);
+    var spacer = document.createElement('span');
+    spacer.className = 'spacer';
+    actions.appendChild(spacer);
+    var urgent = document.createElement('button');
+    urgent.className = 'abtn urgentbtn' + (it.urgent ? ' on' : '');
+    urgent.textContent = '\\u26A1 ' + (it.urgent ? 'Urgent' : 'Mark urgent');
+    urgent.setAttribute('aria-label', 'toggle urgent');
+    urgent.onclick = function (e) { e.stopPropagation(); toggleUrgent(it); };
+    actions.appendChild(urgent);
+    var claim = document.createElement('button');
+    claim.className = 'abtn claimbtn' + (it.claimed_by ? ' claimed' : '');
+    claim.textContent = '\\uD83D\\uDE4B ' + (it.claimed_by ? it.claimed_by : 'Claim');
+    claim.setAttribute('aria-label', 'claim');
+    claim.title = it.claimed_by ? it.claimed_by + ' will get this' + (it.claim_when ? ' \\u00B7 ' + it.claim_when : '') : 'Claim this item';
+    claim.onclick = function (e) { e.stopPropagation(); claimItem(it); };
+    actions.appendChild(claim);
+    li.appendChild(actions);
+  } else {
+    var ptag = document.createElement('span');
+    ptag.className = 'tag ' + (it.store === 'either' ? '' : it.store);
+    ptag.textContent = storeLabel(it.store);
+    li.insertBefore(ptag, del);
+  }
   return li;
 }
 
