@@ -52,6 +52,7 @@ const PAGE = `<!DOCTYPE html>
   #bellBtn { border: 1px solid rgba(255,255,255,.45); background: rgba(255,255,255,.16); color: #fff; font-size: 17px; padding: 7px 11px; border-radius: 999px; cursor: pointer; opacity: .45; transition: opacity .15s ease, transform .12s ease; }
   #bellBtn.on { opacity: 1; }
   #bellBtn:active { transform: scale(.94); }
+  .ver { text-align: center; font-size: 11px; opacity: .55; margin-top: 10px; }
   .chips { display: flex; gap: 8px; margin-top: 14px; }
   .chip { flex: 1; padding: 11px 0; border: none; border-radius: 999px; background: rgba(255,255,255,.16); color: #fff; font-size: 15px; font-weight: 700; text-align: center; cursor: pointer; transition: all .15s ease; }
   .chip.active { background: #fff; color: #0b5a34; box-shadow: 0 2px 6px rgba(0,0,0,.2); }
@@ -152,6 +153,7 @@ const PAGE = `<!DOCTYPE html>
     <button id="addBtn">Add</button>
   </div>
   <button id="clearBtn">Clear purchased</button>
+  <div class="ver" id="ver">v4 belltrace</div>
   </div>
   <div class="bulkactions">
     <div class="selcount" id="selCount"></div>
