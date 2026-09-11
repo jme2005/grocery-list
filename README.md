@@ -91,12 +91,27 @@ npx wrangler deploy
 
 Costco support arrived later and needs a table rebuild (SQLite can't widen the
 store CHECK in place). The wrangler `--file` import endpoint has been rejecting
-this account's token, so paste `migrate5.sql` into the D1 console at
-dash.cloudflare.com (D1 > grocery-list-db > Console) and run it once, then:
+this account's token, so run the five statements in `migrate5.sql` individually
+with `--command` (or paste the file into the D1 console at dash.cloudflare.com),
+then:
 
 ```bash
 npx wrangler deploy
 ```
+
+Push notifications arrived later. Run once, then set the VAPID private key
+secret (the value was generated alongside the public key baked into
+`worker.js`; keep it private), then redeploy:
+
+```bash
+npx wrangler d1 execute grocery-list-db --remote --command "CREATE TABLE IF NOT EXISTS push_subscriptions (endpoint TEXT PRIMARY KEY, p256dh TEXT NOT NULL, auth TEXT NOT NULL, name TEXT, created_at TEXT NOT NULL);"
+npx wrangler secret put VAPID_PRIVATE_JWK
+npx wrangler deploy
+```
+
+On each phone: add the list to the home screen, open it from the home-screen
+icon, and tap the 🔔 bell in the header to enable notifications. (iOS only
+delivers web push to home-screen web apps.)
 
 On first load each phone asks for a display name (stored in that browser only,
 tappable in the header to change). It appears on items as "Added by Johan"
