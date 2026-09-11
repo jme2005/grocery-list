@@ -308,10 +308,17 @@ const PAGE = `<!DOCTYPE html>
   </div>
 </footer>
 <script>
+// If anything in this script throws on load, say so instead of looking dead.
+window.onerror = function (msg) {
+  var e = document.getElementById('err');
+  if (e) { e.textContent = 'Page error: ' + msg; e.style.display = 'block'; }
+};
+function storeGet(k) { try { return localStorage.getItem(k) || ''; } catch (e) { return ''; } }
+function storeSet(k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
 var filter = 'all';
 var addStore = 'either';
 var items = [];
-var who = localStorage.getItem('groceryWho') || '';
+var who = storeGet('groceryWho');
 var listEl = document.getElementById('list');
 var purchEl = document.getElementById('purchased');
 var emptyEl = document.getElementById('empty');
@@ -326,7 +333,7 @@ function ensureWho() {
 }
 whoBtn.onclick = function () {
   var n = prompt('Your name:', who);
-  if (n && n.trim()) { who = n.trim(); localStorage.setItem('groceryWho', who); whoBtn.textContent = who; refreshPushName(); }
+  if (n && n.trim()) { who = n.trim(); storeSet('groceryWho', who); whoBtn.textContent = who; refreshPushName(); }
 };
 ensureWho();
 
