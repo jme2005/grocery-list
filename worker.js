@@ -512,6 +512,9 @@ const PAGE = `<!DOCTYPE html>
   #recipeText { width: 100%; box-sizing: border-box; font-size: 16px; padding: 12px; border: 1.5px solid #d5dad2; border-radius: 12px; outline: none; resize: vertical; }
   #recipeText:focus { border-color: #1d9a55; }
   .netbadge { border: none; background: #b7791f; color: #fff; font-size: 12px; font-weight: 800; border-radius: 999px; padding: 7px 11px; cursor: pointer; }
+  .lightbox { position: fixed; inset: 0; z-index: 60; background: rgba(10,15,12,.93); display: none; align-items: center; justify-content: center; padding: 24px; cursor: zoom-out; }
+  .lightbox.open { display: flex; }
+  .lightbox img { max-width: 100%; max-height: 100%; border-radius: 14px; box-shadow: 0 12px 48px rgba(0,0,0,.5); }
   #storeBtn.on { background: #0e6b3a; color: #fff; border-color: #0e6b3a; }
   body.instore { font-size: 19px; }
   body.instore li { padding: 20px 14px; }
@@ -662,6 +665,9 @@ const PAGE = `<!DOCTYPE html>
     <textarea id="recipeText" rows="8" placeholder="2 cups flour&#10;3 eggs&#10;1 gal milk"></textarea>
     <div class="abtns"><button id="recipeAdd" class="abtn">Add items</button></div>
   </div>
+</div>
+<div id="lightbox" class="lightbox" role="dialog" aria-label="Photo viewer">
+  <img id="lightboxImg" alt="">
 </div>
 <script>
 // If anything in this script throws on load, say so instead of looking dead.
@@ -1003,7 +1009,7 @@ function makeRow(it, purchased) {
     th.className = 'thumb';
     th.src = it.photo;
     th.alt = '';
-    th.onclick = function (e) { e.stopPropagation(); window.open(it.photo, '_blank'); };
+    th.onclick = function (e) { e.stopPropagation(); openLightbox(it.photo); };
     mid.appendChild(th);
   }
   if (!purchased && it.claimed_by) {
@@ -1071,6 +1077,20 @@ function makeRow(it, purchased) {
   }
   return li;
 }
+
+// ---- Photo lightbox: tap a thumbnail to enlarge, tap anywhere to close ----
+function openLightbox(src) {
+  document.getElementById('lightboxImg').src = src;
+  document.getElementById('lightbox').classList.add('open');
+}
+function closeLightbox() {
+  document.getElementById('lightbox').classList.remove('open');
+  document.getElementById('lightboxImg').src = '';
+}
+document.getElementById('lightbox').addEventListener('click', closeLightbox);
+document.getElementById('detailPreview').addEventListener('click', function () {
+  if (this.src) openLightbox(this.src);
+});
 
 function setQty(it, v) {
   var s = (v === null || v === undefined) ? null : String(v).trim().slice(0, 20) || null;
