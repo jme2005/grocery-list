@@ -16,10 +16,16 @@ const STORE_LABEL = { heb: 'H-E-B', tjs: "Trader Joe's", costco: 'Costco', eithe
 const SW_JS = `self.addEventListener('push', function (event) {
   var data = {};
   try { data = event.data.json(); } catch (e) {}
-  event.waitUntil(self.registration.showNotification(data.title || 'Grocery List', {
-    body: data.body || '',
-    tag: 'grocery-list'
-  }));
+  event.waitUntil(
+    self.registration.showNotification(data.title || 'Grocery List', {
+      body: data.body || '',
+      tag: 'grocery-list'
+    }).then(function () {
+      return self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+    }).then(function (clis) {
+      clis.forEach(function (c) { try { c.postMessage({ type: 'push' }); } catch (e) {} });
+    })
+  );
 });
 self.addEventListener('notificationclick', function (event) {
   event.notification.close();
@@ -160,15 +166,73 @@ async function sendPush(env, sub, payload) {
   return res.status;
 }
 
+// Coalescing window: events from the same actor+kind inside this window merge
+// into a single notification ("Johan added 3 items") instead of one per item.
+// The push tag collapses repeats into one on-device notification.
+const EVENT_BATCH_MS = 3 * 60 * 1000;
+
+function buildEventBody(actor, kind, count, names, extra) {
+  const list = names.length > 1 && names.length <= 3
+    ? ': ' + names.map(function (n) { return '"' + n + '"'; }).join(', ') : '';
+  if (kind === 'add') {
+    const store = count === 1 && extra.store && extra.store !== 'either' ? ' · ' + STORE_LABEL[extra.store] : '';
+    return count === 1 ? actor + ' added "' + (names[0] || '') + '"' + store
+                       : actor + ' added ' + count + ' items' + list + store;
+  }
+  if (kind === 'purchase') {
+    return count === 1 ? actor + ' bought "' + (names[0] || '') + '"'
+                       : actor + ' bought ' + count + ' items' + list;
+  }
+  const when = extra.when ? ' · ' + extra.when : '';
+  return count === 1 ? actor + ' will get "' + (names[0] || '') + '"' + when
+                     : actor + ' will get ' + count + ' items' + list;
+}
+
+// Record the event, coalescing with a recent same-actor+kind batch.
+// Returns the cumulative body text. Throws if the events table is missing
+// (the caller falls back to an unbatched body so pushes work pre-migration).
+async function upsertEvent(env, actor, kind, label, extra) {
+  const now = new Date().toISOString();
+  const count = extra.count || 1;
+  const windowStart = new Date(Date.now() - EVENT_BATCH_MS).toISOString();
+  const batch = await env.DB.prepare(
+    'SELECT id, count, names FROM notification_events WHERE actor = ? AND kind = ? AND updated_at > ? ORDER BY updated_at DESC LIMIT 1'
+  ).bind(actor, kind, windowStart).first();
+  let names, total, body;
+  if (batch) {
+    try { names = JSON.parse(batch.names || '[]'); } catch (e) { names = []; }
+    if (label) names.push(label);
+    names = names.slice(-6);
+    total = (batch.count || 1) + count;
+    body = buildEventBody(actor, kind, total, names, extra);
+    await env.DB.prepare('UPDATE notification_events SET body = ?, count = ?, names = ?, updated_at = ? WHERE id = ?')
+      .bind(body, total, JSON.stringify(names), now, batch.id).run();
+    return body;
+  }
+  names = label ? [label] : [];
+  total = count;
+  body = buildEventBody(actor, kind, total, names, extra);
+  await env.DB.prepare('INSERT INTO notification_events (id, actor, kind, body, count, names, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+    .bind(crypto.randomUUID(), actor, kind, body, total, JSON.stringify(names), now, now).run();
+  return body;
+}
+
 // Fan out a notification to every subscribed device except the actor's own.
 // Never throws: notification failures must not break the grocery API.
-async function notifyOthers(env, actorName, bodyText) {
+async function notifyOthers(env, actor, kind, label, extra) {
   try {
-    if (!bodyText) return;
+    if (!actor || !kind) return;
+    extra = extra || {};
+    let body;
+    try {
+      body = await upsertEvent(env, actor, kind, label, extra);
+    } catch (e) {
+      body = buildEventBody(actor, kind, extra.count || 1, label ? [label] : [], extra);
+    }
     const rows = await env.DB.prepare('SELECT endpoint, p256dh, auth, name FROM push_subscriptions').all();
-    const subs = (rows.results || []).filter(s => !actorName || s.name !== actorName);
+    const subs = (rows.results || []).filter(s => s.name !== actor);
     if (!subs.length) return;
-    const payload = { title: '🧺 Grocery List', body: bodyText };
+    const payload = { title: '🧺 Grocery List', body: body };
     await Promise.all(subs.map(async (s) => {
       try {
         const status = await sendPush(env, s, payload);
@@ -269,6 +333,18 @@ const PAGE = `<!DOCTYPE html>
   li.urgent { border-left-color: #e05240; }
   .utag { flex: none; font-size: 11.5px; font-weight: 800; text-transform: uppercase; letter-spacing: .4px; padding: 6px 10px; border-radius: 999px; background: #ffe6e6; color: #c74343; }
   #bulkUrgent { background: #fff3e0; color: #d97a1f; }
+  #bellBtn { position: relative; }
+  #bellBtn .dot { position: absolute; top: 5px; right: 7px; width: 9px; height: 9px; border-radius: 50%; background: #ff453a; border: 1.5px solid #0e6b3a; display: none; }
+  #bellBtn.hasunseen .dot { display: block; }
+  #actBanner { display: none; margin: 12px 16px 0; background: #fff; border-radius: 16px; box-shadow: 0 1px 2px rgba(25,35,25,.05), 0 6px 18px rgba(25,35,25,.06); padding: 4px 12px 6px; font-size: 14px; }
+  #actBanner.show { display: block; }
+  #actBanner .ahead { display: flex; align-items: center; justify-content: space-between; padding-top: 6px; }
+  #actBanner .atitle { font-size: 12px; font-weight: 800; text-transform: uppercase; letter-spacing: 1px; color: #979d94; }
+  #actBanner .ax { border: none; background: none; font-size: 18px; line-height: 1; color: #b3b8b0; cursor: pointer; padding: 4px 2px; }
+  #actBanner .arow { display: flex; align-items: center; gap: 8px; padding: 7px 0; border-bottom: 1px solid #f0f2ee; }
+  #actBanner .arow:last-child { border-bottom: none; }
+  #actBanner .abody { flex: 1; min-width: 0; }
+  #actBanner .atime { color: #9aa097; font-size: 12px; flex: none; }
 </style>
 </head>
 <body>
@@ -277,7 +353,7 @@ const PAGE = `<!DOCTYPE html>
   <div class="headrow">
     <div><h1>🧺 Grocery List</h1><div class="sub" id="buyCount"></div></div>
     <span class="headbtns">
-      <button id="bellBtn" aria-label="notifications" title="notifications">&#128276;</button>
+      <button id="bellBtn" aria-label="notifications" title="notifications">&#128276;<span class="dot"></span></button>
       <button id="whoBtn" aria-label="change name"></button>
     </span>
   </div>
@@ -288,6 +364,7 @@ const PAGE = `<!DOCTYPE html>
     <button class="chip" data-f="costco">Costco</button>
   </div>
 </header>
+<div id="actBanner"></div>
 <div class="section"><span>To buy</span><button id="selectBtn">Select</button></div>
 <ul id="list"></ul>
 <div class="empty" id="empty" style="display:none">🛒 Nothing to buy yet.<br>Add something below.</div>
@@ -358,6 +435,10 @@ ensureWho();
 // will say exactly which line failed.
 var VAPID_PUBLIC_KEY = 'BFoQfkwwjzJKXqOqvzuieNMEH9w12Ire-X6F1vvGMwnpnF7rsJ_qMy6_fD4g4o2f5EMvZtDSTOwNEKmnVd7-XI4';
 var bellBtn = document.getElementById('bellBtn');
+var actBanner = document.getElementById('actBanner');
+// Paint the last known bell state instantly; updateBell() below verifies it
+// against the real subscription (passive read, no prompts).
+if (storeGet('bellOn') === '1') bellBtn.classList.add('on');
 function pushSupported() { return ('serviceWorker' in navigator) && ('PushManager' in window); }
 function b64urlToBytes(b64) {
   b64 = b64.replace(/-/g, '+').replace(/_/g, '/');
@@ -390,6 +471,7 @@ async function updateBell() {
     var reg = await navigator.serviceWorker.getRegistration();
     var sub = reg ? await reg.pushManager.getSubscription() : null;
     bellBtn.classList.toggle('on', !!sub);
+    storeSet('bellOn', sub ? '1' : '0');
   } catch (e) { bellSay('bell check FAILED: ' + (e && e.message || e)); }
 }
 async function toggleNotifications() {
@@ -405,6 +487,7 @@ async function toggleNotifications() {
         await api('/subscriptions', { method: 'DELETE', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ endpoint: sub.endpoint }) });
       } catch (e) { /* server cleanup is best effort */ }
+      storeSet('bellOn', '0');
       updateBell();
       bellSay('bell: unsubscribed');
       return;
@@ -422,13 +505,59 @@ async function toggleNotifications() {
     sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64urlToBytes(VAPID_PUBLIC_KEY) });
     bellSay('bell: saving subscription');
     await postSubscription(sub);
+    storeSet('bellOn', '1');
     updateBell();
     bellSay('bell: on');
   } catch (e) { bellSay('bell FAILED: ' + (e && e.message || e)); }
 }
 bellBtn.onclick = toggleNotifications;
-// Deliberately no updateBell() at load: the bell's state refreshes on tap, so
-// nothing push-related runs before a user gesture.
+// Passive subscription check on load: keeps the bell in sync after redeploys.
+// getRegistration/getSubscription never prompt and register nothing.
+updateBell();
+
+// ---- Notification activity feed (unread marker) ----
+function relTime(iso) {
+  var t = new Date(iso).getTime(), d = Date.now() - t;
+  if (!(d >= 0)) return '';
+  if (d < 60000) return 'just now';
+  if (d < 3600000) return Math.floor(d / 60000) + 'm ago';
+  if (d < 86400000) return Math.floor(d / 3600000) + 'h ago';
+  return Math.floor(d / 86400000) + 'd ago';
+}
+async function refreshActivity() {
+  try {
+    var data = await api('/events');
+    var events = data.events || [];
+    var seen = storeGet('seenTs');
+    if (!seen) { storeSet('seenTs', new Date().toISOString()); return; } // first run: don't flag history
+    var unseen = events.filter(function (e) {
+      return e.updated_at > seen && (!who || e.actor !== who);
+    });
+    bellBtn.classList.toggle('hasunseen', unseen.length > 0);
+    if (!unseen.length) { actBanner.className = ''; actBanner.innerHTML = ''; return; }
+    var html = '<div class="ahead"><span class="atitle">Activity</span>' +
+      '<button class="ax" id="actX" aria-label="dismiss">&times;</button></div>';
+    var show = unseen.slice(0, 3);
+    for (var i = 0; i < show.length; i++) {
+      html += '<div class="arow"><span class="abody"></span><span class="atime">' + relTime(show[i].updated_at) + '</span></div>';
+    }
+    actBanner.innerHTML = html;
+    var bodies = actBanner.querySelectorAll('.abody');
+    for (var j = 0; j < show.length; j++) { bodies[j].textContent = show[j].body; }
+    actBanner.className = 'show';
+    document.getElementById('actX').onclick = function () {
+      storeSet('seenTs', new Date().toISOString());
+      actBanner.className = '';
+      actBanner.innerHTML = '';
+      bellBtn.classList.remove('hasunseen');
+    };
+  } catch (e) { /* activity feed is best effort */ }
+}
+if ('serviceWorker' in navigator && navigator.serviceWorker.addEventListener) {
+  navigator.serviceWorker.addEventListener('message', function (e) {
+    if (e.data && e.data.type === 'push') refreshActivity();
+  });
+}
 
 function api(path, opts) {
   return fetch('api/items' + path, opts).then(function (r) {
@@ -678,9 +807,11 @@ document.getElementById('clearBtn').onclick = function () {
 };
 
 refresh();
+refreshActivity();
 setInterval(refresh, 10000); // near-live sync between the two phones
+setInterval(refreshActivity, 60000);
 document.addEventListener('visibilitychange', function () {
-  if (!document.hidden) refresh();
+  if (!document.hidden) { refresh(); refreshActivity(); }
 });
 </script>
 </body>
@@ -728,11 +859,7 @@ async function handleApi(request, env, ctx, rest) {
     });
     await db.batch(stmts);
     if ((op === 'purchase' || op === 'claim') && by) {
-      const what = ids.length === 1 ? '1 item' : ids.length + ' items';
-      const msg = op === 'purchase'
-        ? by + ' bought ' + what
-        : by + ' will get ' + what + (when ? ' · ' + when : '');
-      ctx.waitUntil(notifyOthers(env, by, msg));
+      ctx.waitUntil(notifyOthers(env, by, op, null, { count: ids.length, when: when }));
     }
     return json({ ok: true, count: ids.length });
   }
@@ -742,6 +869,20 @@ async function handleApi(request, env, ctx, rest) {
     if (method !== 'POST') return json({ error: 'Method not allowed' }, 405);
     await db.prepare('DELETE FROM items WHERE checked = 1').run();
     return json({ ok: true });
+  }
+
+  // GET /api/items/events — recent notification activity for the unread marker.
+  // Table created by migrate7.sql; returns [] if the migration hasn't run yet.
+  if (rest.length === 1 && rest[0] === 'events') {
+    if (method !== 'GET') return json({ error: 'Method not allowed' }, 405);
+    try {
+      const rows = await db.prepare(
+        'SELECT actor, kind, body, created_at, updated_at FROM notification_events ORDER BY updated_at DESC LIMIT 20'
+      ).all();
+      return json({ events: rows.results || [] });
+    } catch (e) {
+      return json({ events: [] });
+    }
   }
 
   // POST/DELETE /api/items/subscriptions — manage Web Push subscriptions.
@@ -794,8 +935,7 @@ async function handleApi(request, env, ctx, rest) {
         .bind(id, name, store, addedBy, now, now)
         .run();
       if (addedBy) {
-        ctx.waitUntil(notifyOthers(env, addedBy,
-          addedBy + ' added "' + name + '"' + (store !== 'either' ? ' · ' + STORE_LABEL[store] : '')));
+        ctx.waitUntil(notifyOthers(env, addedBy, 'add', name, { store: store }));
       }
       return json({ id, name, store, checked: 0, added_by: addedBy, created_at: now, updated_at: now }, 201);
     }
@@ -864,12 +1004,11 @@ async function handleApi(request, env, ctx, rest) {
       if (existing) {
         if (body.checked && !existing.checked) {
           const actor = (body.purchased_by || '').toString().trim().slice(0, 60);
-          if (actor) ctx.waitUntil(notifyOthers(env, actor, actor + ' bought "' + existing.name + '"'));
+          if (actor) ctx.waitUntil(notifyOthers(env, actor, 'purchase', existing.name));
         } else if (body.claimed) {
           const actor = (body.claimed_by || '').toString().trim().slice(0, 60);
           const when = (body.claim_when || '').toString().trim().slice(0, 60);
-          if (actor) ctx.waitUntil(notifyOthers(env, actor,
-            actor + ' will get "' + existing.name + '"' + (when ? ' · ' + when : '')));
+          if (actor) ctx.waitUntil(notifyOthers(env, actor, 'claim', existing.name, { when: when }));
         }
       }
       return json({ ok: true });
