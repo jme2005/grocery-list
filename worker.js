@@ -1574,7 +1574,7 @@ document.getElementById('recipeFetch').onclick = function () {
       btn.disabled = false; btn.textContent = 'Fetch';
       if (!res.ok || res.d.error) { say(res.d.error || 'Could not fetch that link.', 'err'); return; }
       var ings = res.d.ingredients || [];
-      document.getElementById('recipeText').value = ings.join('\n');
+      document.getElementById('recipeText').value = ings.join('\\n');
       say('Got ' + ings.length + ' ingredients' + (res.d.name ? ' from \u201C' + res.d.name + '\u201D' : '') + ' \u2014 review below, then Add items.', 'ok');
     })
     .catch(function () {
