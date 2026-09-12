@@ -503,6 +503,10 @@ const PAGE = `<!DOCTYPE html>
   .staplesbtn { width: 100%; margin-top: 10px; border: 1.5px dashed #cfe3d6; background: #f4faf6; color: #0e6b3a; font-size: 15px; font-weight: 800; border-radius: 12px; padding: 12px; cursor: pointer; }
   .staplesbtn:active { transform: scale(.99); }
   .sheetCard.tall { max-height: 78vh; display: flex; flex-direction: column; }
+  .sheetCard.tall::before { content: none; }
+  .grabhit { padding: 10px 30px 8px; cursor: grab; touch-action: none; }
+  .grabhit .grabber { width: 42px; height: 5px; border-radius: 999px; background: #dcded8; margin: 0 auto; }
+  .sheetCard { transition: transform .18s ease-out; }
   .staplelist { overflow-y: auto; -webkit-overflow-scrolling: touch; margin: 2px -4px; }
   .staplerow { display: flex; align-items: center; gap: 10px; padding: 11px 4px; border-bottom: 1px solid #eef2ee; }
   .stapleinfo { flex: 1; min-width: 0; }
@@ -673,6 +677,7 @@ const PAGE = `<!DOCTYPE html>
 </div>
 <div id="stapleSheet" class="sheet" role="dialog" aria-label="Staples">
   <div class="sheetCard tall">
+    <div class="grabhit" id="stapleGrab"><div class="grabber"></div></div>
     <div class="sheetHead"><span class="atitle">Staples</span><button class="ax" id="stapleSheetX" aria-label="close">&times;</button></div>
     <div class="sheetSub">Tap Add to put a staple on the list</div>
     <div id="stapleList" class="staplelist"></div>
@@ -1404,6 +1409,36 @@ function closeStapleSheet() {
   stapleSheetOpen = false;
   document.getElementById('stapleSheet').classList.remove('open');
 }
+// Bottom-sheet drag: pull the grab handle down to dismiss the sheet.
+function initSheetDrag(grabId, closeFn) {
+  var grab = document.getElementById(grabId);
+  if (!grab || !grab.parentNode) return;
+  var card = grab.parentNode;
+  var drag = null;
+  function yOf(e) { return e.touches ? e.touches[0].clientY : e.clientY; }
+  function start(e) { drag = { y: yOf(e), dy: 0 }; card.style.transition = 'none'; }
+  function move(e) {
+    if (!drag) return;
+    drag.dy = yOf(e) - drag.y;
+    card.style.transform = drag.dy > 0 ? 'translateY(' + drag.dy + 'px)' : '';
+    if (e.cancelable) e.preventDefault();
+  }
+  function end() {
+    if (!drag) return;
+    var dy = drag.dy; drag = null;
+    card.style.transition = '';
+    card.style.transform = '';
+    if (dy > 90) closeFn();
+  }
+  grab.addEventListener('touchstart', start, { passive: true });
+  grab.addEventListener('touchmove', move, { passive: false });
+  grab.addEventListener('touchend', end);
+  grab.addEventListener('touchcancel', end);
+  grab.addEventListener('mousedown', start);
+  window.addEventListener('mousemove', move);
+  window.addEventListener('mouseup', end);
+}
+initSheetDrag('stapleGrab', closeStapleSheet);
 function renderStapleSheet() {
   var list = document.getElementById('stapleList');
   list.innerHTML = '';

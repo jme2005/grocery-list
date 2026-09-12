@@ -11,10 +11,12 @@ const script = globalThis.__page.split('<script>')[1].split('</script>')[0];
 const harness = `
 // ---- DOM stubs ----
 function makeEl(){
-  const e = { children:[], _html:'', textContent:'', value:'', src:'', title:'', style:{},
+  const e = { children:[], _html:'', textContent:'', value:'', src:'', title:'', style:{}, _ev:{},
   classList:{ add(){}, remove(){}, toggle(){}, contains(){return false;} },
   appendChild(c){ this.children.push(c); return c; },
-  addEventListener(){}, setAttribute(){}, getAttribute(){ return null; },
+  addEventListener(t,fn){ (e._ev[t] = e._ev[t] || []).push(fn); },
+  fire(t,ev){ (e._ev[t]||[]).forEach(function(f){ f(ev || {}); }); },
+  setAttribute(){}, getAttribute(){ return null; },
   closest(){ return null; }, focus(){},
   };
   Object.defineProperty(e, 'innerHTML', { get(){ return e._html; }, set(v){ e._html = v; if(v === '') e.children = []; } });
@@ -157,6 +159,25 @@ const tests = `
     sl.children[0].children[0].children[0].textContent === 'TestStaple',
     'new staple appears without reopening, got: ' + JSON.stringify(sl.children[0].children[0].children[0].textContent));
   closeStapleSheet();
+
+  // 11. grab handle drag: long pull dismisses, short pull snaps back
+  const dcard = makeEl(); const dgrab = makeEl();
+  dgrab.parentNode = dcard;
+  __els['stapleGrab'] = dgrab;
+  initSheetDrag('stapleGrab', closeStapleSheet);
+  stapleSheetOpen = true;
+  dgrab.fire('touchstart', { touches:[{clientY:200}] });
+  dgrab.fire('touchmove', { touches:[{clientY:340}], cancelable:true, preventDefault(){} });
+  assert(dcard.style.transform === 'translateY(140px)', 'sheet follows finger, got: ' + dcard.style.transform);
+  dgrab.fire('touchend', {});
+  assert(stapleSheetOpen === false, 'long pull dismisses the sheet');
+  assert(dcard.style.transform === '', 'transform reset after dismiss');
+  stapleSheetOpen = true;
+  dgrab.fire('touchstart', { touches:[{clientY:200}] });
+  dgrab.fire('touchmove', { touches:[{clientY:230}], cancelable:true, preventDefault(){} });
+  dgrab.fire('touchend', {});
+  assert(dcard.style.transform === '', 'short pull snaps back');
+  assert(stapleSheetOpen === true, 'short pull keeps sheet open');
 
   console.log('DONE');
   process.exit(process.exitCode || 0);
