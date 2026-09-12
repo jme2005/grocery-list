@@ -34,7 +34,7 @@ self.addEventListener('notificationclick', function (event) {
 // every backslash (see the Sep 11, 2026 outage).
 // The private VAPID key is a secret and is never committed:
 //   npx wrangler secret put VAPID_PRIVATE_JWK
-const VAPID_PUBLIC_KEY = 'BB0k6VaPs-X82jiyvJeo_eaaDJLOhel0RD8-kkRRM9V8ePzRChnwsWAIMN_IHtE3wfLFomoZJ9OMtMj_AfLEQpw';
+const VAPID_PUBLIC_KEY = 'BFoQfkwwjzJKXqOqvzuieNMEH9w12Ire-X6F1vvGMwnpnF7rsJ_qMy6_fD4g4o2f5EMvZtDSTOwNEKmnVd7-XI4';
 const VAPID_SUBJECT = 'mailto:johan.m.edvinsson@gmail.com';
 
 function b64urlDecode(s) {
@@ -356,7 +356,7 @@ ensureWho();
 // Tap-gated on purpose: no Push API or service-worker work happens until the
 // user taps the bell. If this step breaks the page, the error banner above
 // will say exactly which line failed.
-var VAPID_PUBLIC_KEY = 'BB0k6VaPs-X82jiyvJeo_eaaDJLOhel0RD8-kkRRM9V8ePzRChnwsWAIMN_IHtE3wfLFomoZJ9OMtMj_AfLEQpw';
+var VAPID_PUBLIC_KEY = 'BFoQfkwwjzJKXqOqvzuieNMEH9w12Ire-X6F1vvGMwnpnF7rsJ_qMy6_fD4g4o2f5EMvZtDSTOwNEKmnVd7-XI4';
 var bellBtn = document.getElementById('bellBtn');
 function pushSupported() { return ('serviceWorker' in navigator) && ('PushManager' in window); }
 function b64urlToBytes(b64) {
