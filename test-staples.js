@@ -90,6 +90,20 @@ const tests = `
   renderStapleSheet();
   assert(document.getElementById('stapleList').children.length === 1, 'empty staples renders placeholder');
 
+  // 8. stale refresh responses are ignored: last request wins, not last response
+  items = [];
+  const pending = [];
+  __fetchImpl = () => new Promise(resolve => pending.push(resolve));
+  refresh(); // seq N+1 (older request)
+  refresh(); // seq N+2 (newer request)
+  assert(pending.length === 2, 'two refreshes in flight');
+  // newer response arrives FIRST, older response arrives LAST (out of order)
+  pending[1]({ ok:true, status:200, json: async () => [{name:'BBB', checked:0}] });
+  await new Promise(r => setTimeout(r, 20));
+  pending[0]({ ok:true, status:200, json: async () => [{name:'AAA', checked:0}] });
+  await new Promise(r => setTimeout(r, 20));
+  assert(items.length === 1 && items[0].name === 'BBB', 'stale older refresh response ignored');
+
   console.log('DONE');
   process.exit(process.exitCode || 0);
 })();

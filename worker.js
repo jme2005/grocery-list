@@ -1312,9 +1312,13 @@ function render() {
   bought.forEach(function (it) { purchEl.appendChild(makeRow(it, true)); });
 }
 
+var refreshSeq = 0;
 function refresh() {
-  api('').then(function (data) { items = data; render(); })
-    .catch(function () { showErr('Could not sync list'); });
+  var seq = ++refreshSeq;
+  api('').then(function (data) {
+    if (seq !== refreshSeq) return; // a newer refresh is in flight; ignore this stale response
+    items = data; render();
+  }).catch(function () { showErr('Could not sync list'); });
 }
 function toggle(it, purchased) {
   if (!purchased && !confirm('Marked as purchased?')) return;
@@ -1437,11 +1441,18 @@ function renderStapleSheet() {
   });
 }
 function addStapleToList(s) {
+  if (s._adding) return; // ignore double-taps while the first request is in flight
   if (isDupName(s.name) && !confirm('"' + s.name + '" is already on the list. Add anyway?')) return;
+  s._adding = true;
   api('/staples/' + s.id + '/add', { method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ by: who }) })
-    .then(function () { refresh(); toast('Added ' + s.name); })
-    .catch(function () { showErr('Could not add staple'); });
+    .then(function (res) {
+      s._adding = false;
+      if (res && res.queued) return; // offline: 'change queued' toast already shown
+      refresh();
+      toast('Added ' + s.name);
+    })
+    .catch(function () { s._adding = false; showErr('Could not add staple'); });
 }
 document.getElementById('staplesOpen').onclick = openStapleSheet;
 document.getElementById('stapleSheetX').onclick = closeStapleSheet;
@@ -1530,7 +1541,7 @@ document.addEventListener('visibilitychange', function () {
 function json(data, status) {
   return new Response(JSON.stringify(data), {
     status: status || 200,
-    headers: { 'Content-Type': 'application/json; charset=utf-8' },
+    headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' },
   });
 }
 
