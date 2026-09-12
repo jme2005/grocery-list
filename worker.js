@@ -308,6 +308,18 @@ async function flushDuePushes(env) {
   } catch (e) { /* pushes must never break the worker */ }
 }
 
+// Delete purchased items older than 24 hours. Restored items have checked = 0
+// (and purchased_at = NULL), so un-buying something saves it from the purge.
+// COALESCE covers legacy rows where purchased_at was never set.
+// Runs on the per-minute cron; never throws.
+async function purgeOldPurchased(env) {
+  try {
+    await env.DB.prepare(
+      "DELETE FROM items WHERE checked = 1 AND COALESCE(purchased_at, updated_at) < datetime('now', '-24 hours')"
+    ).run();
+  } catch (e) { /* purge must never break the worker */ }
+}
+
 // Fan out one push to every subscribed device except the actor's own.
 // Never throws: notification failures must not break the grocery API.
 async function fanoutPush(env, actor, body) {
@@ -507,7 +519,7 @@ const PAGE = `<!DOCTYPE html>
     <button id="addBtn">Add</button>
   </div>
   <button id="clearBtn">Clear purchased</button>
-  <div class="ver" id="ver">v5 bellsheet</div>
+  <div class="ver" id="ver">v6 autopurge</div>
   </div>
   <div class="bulkactions">
     <div class="selcount"><span id="selCount"></span><button id="bulkAll">Select all</button></div>
@@ -1239,8 +1251,10 @@ export default {
   },
 
   // Cron trigger (see [triggers] in wrangler.toml): flush pending notification
-  // batches — one push per batch after the actor goes quiet.
+  // batches — one push per batch after the actor goes quiet — and purge
+  // items purchased more than 24 hours ago.
   async scheduled(event, env, ctx) {
     ctx.waitUntil(flushDuePushes(env));
+    ctx.waitUntil(purgeOldPurchased(env));
   },
 };
