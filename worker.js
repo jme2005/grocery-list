@@ -500,16 +500,17 @@ const PAGE = `<!DOCTYPE html>
   .priceline { color: #0e6b3a; font-weight: 700; cursor: pointer; }
   .thumb { width: 44px; height: 44px; object-fit: cover; border-radius: 10px; margin-top: 6px; cursor: pointer; }
   .triptotal { font-weight: 700; color: #0e6b3a; }
-  .staples { display: flex; align-items: center; gap: 8px; margin-top: 10px; overflow-x: auto; padding-bottom: 2px; }
-  .stapleslabel { font-size: 12px; font-weight: 800; color: #8a938a; text-transform: uppercase; letter-spacing: .04em; flex: none; border: none; background: none; cursor: pointer; padding: 6px 2px; }
-  .staples.editing .stapleslabel { color: #0e6b3a; }
-  #stapleChips { display: flex; gap: 8px; }
-  .staplechip { flex: none; border: 1.5px solid #cfe3d6; background: #eef7f1; color: #0e6b3a; font-size: 14px; font-weight: 700; border-radius: 999px; padding: 8px 14px; cursor: pointer; }
-  .staplechip.add { background: none; border-style: dashed; color: #8a938a; }
-  .staples.editing .staplechip { animation: stapleshake .3s ease-in-out infinite; }
-  .staples.editing .staplechip.add { animation: none; }
-  @keyframes stapleshake { 0%, 100% { transform: rotate(0deg); } 25% { transform: rotate(-2deg); } 75% { transform: rotate(2deg); } }
-  .sdel { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; margin-left: 8px; border-radius: 50%; background: #d05240; color: #fff; font-size: 14px; font-weight: 800; line-height: 1; vertical-align: 1px; }
+  .staplesbtn { width: 100%; margin-top: 10px; border: 1.5px dashed #cfe3d6; background: #f4faf6; color: #0e6b3a; font-size: 15px; font-weight: 800; border-radius: 12px; padding: 12px; cursor: pointer; }
+  .staplesbtn:active { transform: scale(.99); }
+  .sheetCard.tall { max-height: 78vh; display: flex; flex-direction: column; }
+  .staplelist { overflow-y: auto; -webkit-overflow-scrolling: touch; margin: 2px -4px; }
+  .staplerow { display: flex; align-items: center; gap: 10px; padding: 11px 4px; border-bottom: 1px solid #eef2ee; }
+  .stapleinfo { flex: 1; min-width: 0; }
+  .staplename { font-weight: 700; font-size: 16px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .staplemeta { font-size: 12px; color: #8a938a; margin-top: 2px; }
+  .sadd { border: none; background: #0e6b3a; color: #fff; font-weight: 800; border-radius: 999px; padding: 10px 18px; font-size: 14px; cursor: pointer; flex: none; }
+  .sadd:active { transform: scale(.96); }
+  .sdel2 { border: none; background: #f3e2de; color: #b3402e; font-weight: 800; border-radius: 50%; width: 34px; height: 34px; font-size: 17px; line-height: 1; cursor: pointer; flex: none; }
   .dlabel { display: block; font-size: 14px; font-weight: 700; color: #4a5148; margin: 12px 0; }
   .dlabel input { display: block; width: 100%; box-sizing: border-box; margin-top: 6px; font-size: 16px; padding: 12px; border: 1.5px solid #d5dad2; border-radius: 12px; outline: none; }
   .dlabel input:focus { border-color: #1d9a55; }
@@ -620,11 +621,7 @@ const PAGE = `<!DOCTYPE html>
     <button id="addBtn">Add</button>
     <button id="recipeBtn" title="import recipe">&#x1F4CB;</button>
   </div>
-  <div class="staples" id="staplesRow">
-    <button class="stapleslabel" id="staplesEdit">Staples</button>
-    <span id="stapleChips"></span>
-    <button id="stapleAdd" class="staplechip add" title="add a staple">&#65291;</button>
-  </div>
+  <button id="staplesOpen" class="staplesbtn">&#128204; Staples</button>
   <button id="clearBtn">Clear purchased</button>
   <div class="ver" id="ver">v7 fullspread</div>
   </div>
@@ -673,6 +670,14 @@ const PAGE = `<!DOCTYPE html>
 </div>
 <div id="lightbox" class="lightbox" role="dialog" aria-label="Photo viewer">
   <img id="lightboxImg" alt="">
+</div>
+<div id="stapleSheet" class="sheet" role="dialog" aria-label="Staples">
+  <div class="sheetCard tall">
+    <div class="sheetHead"><span class="atitle">Staples</span><button class="ax" id="stapleSheetX" aria-label="close">&times;</button></div>
+    <div class="sheetSub">Tap Add to put a staple on the list</div>
+    <div id="stapleList" class="staplelist"></div>
+    <div class="abtns"><button id="stapleNew" class="abtn">&#65291; New staple</button></div>
+  </div>
 </div>
 <script>
 // If anything in this script throws on load, say so instead of looking dead.
@@ -890,11 +895,16 @@ function api(path, opts) {
     return Promise.resolve({ ok: true, queued: true });
   }
   return fetch('api/items' + path, opts).then(function (r) {
-    if (!r.ok) throw new Error('Request failed');
+    if (!r.ok) throw new Error('Request failed: ' + r.status);
     return r.json();
   }).catch(function (err) {
-    enqueueApi({ path: path, opts: opts });
-    return { ok: true, queued: true };
+    // Only queue when the network itself failed (offline). Surface HTTP errors
+    // so a failed tap shows an error instead of silently doing nothing.
+    if (err instanceof TypeError) {
+      enqueueApi({ path: path, opts: opts });
+      return { ok: true, queued: true };
+    }
+    throw err;
   });
 }
 var apiQueue = [];
@@ -1325,7 +1335,7 @@ function addItem() {
   var qtyInput = document.getElementById('itemQty');
   var name = input.value.trim();
   if (!name) return;
-  var dup = items.some(function (it) { return !it.checked && it.name.toLowerCase() === name.toLowerCase(); });
+  var dup = isDupName(name);
   if (dup && !confirm('"' + name + '" is already on the list. Add anyway?')) return;
   var qty = qtyInput ? qtyInput.value.trim().slice(0, 20) : '';
   api('', { method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -1360,51 +1370,81 @@ document.getElementById('clearBtn').onclick = function () {
     .catch(function () { showErr('Could not clear purchased'); });
 };
 
-// ---- Staples: one-tap re-add of weekly regulars ----
+// ---- Staples: scrollable menu, tap Add to put a staple on the list ----
 var staples = [];
-var editingStaples = false;
 function loadStaples() {
-  api('/staples').then(function (data) { staples = data || []; renderStaples(); })
-    .catch(function () { staples = []; renderStaples(); });
+  api('/staples').then(function (data) { staples = data || []; updateStaplesBtn(); })
+    .catch(function () { staples = []; updateStaplesBtn(); });
 }
-function renderStaples() {
-  var wrap = document.getElementById('stapleChips');
-  wrap.innerHTML = '';
+function updateStaplesBtn() {
+  document.getElementById('staplesOpen').innerHTML =
+    '&#128204; Staples' + (staples.length ? ' (' + staples.length + ')' : '');
+}
+function isDupName(name) {
+  return items.some(function (it) { return !it.checked && it.name.toLowerCase() === name.toLowerCase(); });
+}
+function openStapleSheet() {
+  renderStapleSheet();
+  document.getElementById('stapleSheet').classList.add('open');
+}
+function closeStapleSheet() {
+  document.getElementById('stapleSheet').classList.remove('open');
+}
+function renderStapleSheet() {
+  var list = document.getElementById('stapleList');
+  list.innerHTML = '';
+  if (!staples.length) {
+    var empty = document.createElement('div');
+    empty.className = 'sheetSub';
+    empty.textContent = 'No staples yet. Pin an item with \uD83D\uDCCC or add one below.';
+    list.appendChild(empty);
+    return;
+  }
   staples.forEach(function (s) {
-    var c = document.createElement('button');
-    c.className = 'staplechip';
-    c.textContent = ((s.qty || '').trim() ? s.qty.trim() + ' ' : '') + s.name;
-    if (editingStaples) {
-      var x = document.createElement('span');
-      x.className = 'sdel';
-      x.textContent = '\u00D7';
-      x.setAttribute('aria-label', 'delete staple');
-      x.onclick = function (e) {
-        e.stopPropagation();
-        if (confirm('Delete staple "' + s.name + '"?')) {
-          api('/staples/' + s.id, { method: 'DELETE' })
-            .then(loadStaples).catch(function () { showErr('Could not delete staple'); });
-        }
-      };
-      c.appendChild(x);
-      c.onclick = function (e) { e.stopPropagation(); };
-    } else {
-      c.title = 'Tap to add to the list';
-      c.onclick = function () {
-        api('/staples/' + s.id + '/add', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ by: who }) })
-          .then(refresh).catch(function () { showErr('Could not add staple'); });
-      };
-    }
-    wrap.appendChild(c);
+    var row = document.createElement('div');
+    row.className = 'staplerow';
+    var info = document.createElement('div');
+    info.className = 'stapleinfo';
+    var nm = document.createElement('div');
+    nm.className = 'staplename';
+    nm.textContent = ((s.qty || '').trim() ? s.qty.trim() + ' ' : '') + s.name;
+    info.appendChild(nm);
+    var meta = document.createElement('div');
+    meta.className = 'staplemeta';
+    var bits = [storeLabel(s.store)];
+    if ((s.note || '').trim()) bits.push(s.note.trim());
+    meta.textContent = bits.join(' \u00B7 ');
+    info.appendChild(meta);
+    var add = document.createElement('button');
+    add.className = 'sadd';
+    add.textContent = 'Add';
+    add.onclick = function () { addStapleToList(s); };
+    var del = document.createElement('button');
+    del.className = 'sdel2';
+    del.textContent = '\u00D7';
+    del.setAttribute('aria-label', 'delete staple');
+    del.onclick = function () {
+      if (confirm('Delete staple "' + s.name + '"?')) {
+        api('/staples/' + s.id, { method: 'DELETE' })
+          .then(function () { loadStaples(); renderStapleSheet(); })
+          .catch(function () { showErr('Could not delete staple'); });
+      }
+    };
+    row.appendChild(info);
+    row.appendChild(add);
+    row.appendChild(del);
+    list.appendChild(row);
   });
-  document.getElementById('staplesRow').classList.toggle('editing', editingStaples);
-  document.getElementById('staplesEdit').textContent = editingStaples ? 'Done' : 'Staples';
 }
-document.getElementById('staplesEdit').onclick = function () {
-  editingStaples = !editingStaples;
-  renderStaples();
-};
+function addStapleToList(s) {
+  if (isDupName(s.name) && !confirm('"' + s.name + '" is already on the list. Add anyway?')) return;
+  api('/staples/' + s.id + '/add', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ by: who }) })
+    .then(function () { refresh(); toast('Added ' + s.name); })
+    .catch(function () { showErr('Could not add staple'); });
+}
+document.getElementById('staplesOpen').onclick = openStapleSheet;
+document.getElementById('stapleSheetX').onclick = closeStapleSheet;
 function saveStaple(it) {
   if (staples.some(function (s) { return s.name.toLowerCase() === it.name.toLowerCase(); })) {
     toast('Already a staple');
@@ -1415,14 +1455,15 @@ function saveStaple(it) {
     .then(function () { loadStaples(); toast('Saved as staple'); })
     .catch(function () { showErr('Could not save staple'); });
 }
-document.getElementById('stapleAdd').onclick = function () {
+document.getElementById('stapleNew').onclick = function () {
   var name = prompt('Staple name:');
   if (name === null) return;
   name = name.trim().slice(0, 60);
   if (!name) return;
   api('/staples', { method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ name: name, store: addStore, created_by: who }) })
-    .then(loadStaples).catch(function () { showErr('Could not add staple'); });
+    .then(function () { loadStaples(); renderStapleSheet(); })
+    .catch(function () { showErr('Could not add staple'); });
 };
 
 // ---- Recipe import: paste ingredients, one per line ----
@@ -1446,16 +1487,19 @@ document.getElementById('recipeAdd').onclick = function () {
   });
   parsed = parsed.slice(0, 50);
   if (!parsed.length) return;
+  var fresh = parsed.filter(function (p) { return !isDupName(p.name); });
+  var skipped = parsed.length - fresh.length;
   closeRecipe();
+  if (!fresh.length) { toast(skipped ? 'All already on the list' : 'Nothing to add'); return; }
   var chain = Promise.resolve();
-  parsed.forEach(function (p) {
+  fresh.forEach(function (p) {
     chain = chain.then(function () {
       return api('', { method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: p.name, store: addStore, added_by: who, qty: p.qty || undefined }) })
         .catch(function () {});
     });
   });
-  chain.then(function () { refresh(); toast('Added ' + parsed.length + ' items'); });
+  chain.then(function () { refresh(); toast('Added ' + fresh.length + ' items' + (skipped ? ' (' + skipped + ' already on list)' : '')); });
 };
 
 // ---- In-store mode: big type, big checkboxes, no clutter ----
