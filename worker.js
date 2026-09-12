@@ -428,6 +428,7 @@ const PAGE = `<!DOCTYPE html>
   body.selecting footer .normal { display: none; }
   body.selecting footer .bulkactions { display: block; }
   .selcount { text-align: center; font-size: 14px; font-weight: 700; color: #4a5148; margin-bottom: 8px; }
+  #bulkAll { background: none; border: none; color: #1663cc; font-size: 14px; font-weight: 700; cursor: pointer; padding: 2px 8px; }
   .abtns { display: flex; gap: 8px; }
   .abtns button { flex: 1; padding: 13px 0; font-size: 15px; font-weight: 800; border: none; border-radius: 14px; cursor: pointer; }
   #bulkClaim { background: #e2efff; color: #1663cc; }
@@ -509,7 +510,7 @@ const PAGE = `<!DOCTYPE html>
   <div class="ver" id="ver">v5 bellsheet</div>
   </div>
   <div class="bulkactions">
-    <div class="selcount" id="selCount"></div>
+    <div class="selcount"><span id="selCount"></span><button id="bulkAll">Select all</button></div>
     <div class="abtns">
       <button id="bulkClaim">Claim</button>
       <button id="bulkUrgent">Urgent</button>
@@ -861,10 +862,24 @@ function toggleUrgent(it) {
 
 var selecting = false;
 var selected = {};
+function visibleActive() {
+  return items.filter(function (it) {
+    return !it.checked && (filter === 'all' || it.store === 'either' || it.store === filter);
+  });
+}
 function updateSel() {
   var n = Object.keys(selected).length;
   document.getElementById('selCount').textContent = n === 0 ? 'Tap items to select' : n + ' selected';
+  var vis = visibleActive();
+  var allSel = vis.length > 0 && vis.every(function (it) { return selected[it.id]; });
+  document.getElementById('bulkAll').textContent = allSel ? 'Deselect all' : 'Select all';
 }
+document.getElementById('bulkAll').onclick = function () {
+  var vis = visibleActive();
+  var allSel = vis.length > 0 && vis.every(function (it) { return selected[it.id]; });
+  vis.forEach(function (it) { if (allSel) delete selected[it.id]; else selected[it.id] = 1; });
+  render(); updateSel();
+};
 function endSelect() {
   selecting = false; selected = {};
   document.body.classList.remove('selecting');
@@ -908,9 +923,7 @@ document.getElementById('bulkCancel').onclick = endSelect;
 function render() {
   listEl.innerHTML = '';
   purchEl.innerHTML = '';
-  var active = items.filter(function (it) {
-    return !it.checked && (filter === 'all' || it.store === 'either' || it.store === filter);
-  });
+  var active = visibleActive();
   var bought = items.filter(function (it) { return it.checked; });
   active.sort(function (a, b) { return a.created_at < b.created_at ? -1 : 1; });
   bought.sort(function (a, b) { return (a.purchased_at || '') < (b.purchased_at || '') ? 1 : -1; });
