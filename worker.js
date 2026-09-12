@@ -450,6 +450,25 @@ const PAGE = `<!DOCTYPE html>
   #actBanner .arow:last-child { border-bottom: none; }
   #actBanner .abody { flex: 1; min-width: 0; }
   #actBanner .atime { color: #9aa097; font-size: 12px; flex: none; }
+  .sheet { position: fixed; inset: 0; z-index: 50; background: rgba(20,30,22,.45); display: none; align-items: flex-end; justify-content: center; }
+  .sheet.open { display: flex; }
+  .sheetCard { background: #fff; border-radius: 22px 22px 0 0; width: 100%; max-width: 560px; max-height: 82vh; overflow-y: auto; padding: 6px 16px calc(20px + env(safe-area-inset-bottom)); animation: sheetup .18s ease-out; }
+  @keyframes sheetup { from { transform: translateY(30px); opacity: .5; } to { transform: none; opacity: 1; } }
+  .sheetHead { display: flex; align-items: center; justify-content: space-between; padding: 10px 0 2px; }
+  .sheetHead .atitle { font-size: 12px; font-weight: 800; text-transform: uppercase; letter-spacing: 1px; color: #979d94; }
+  .pushrow { display: flex; align-items: center; justify-content: space-between; width: 100%; border: none; background: #f4f6f3; border-radius: 14px; padding: 13px 14px; font-size: 16px; font-weight: 600; color: #20241f; cursor: pointer; margin: 8px 0 2px; font-family: inherit; }
+  .pushrow .switch { width: 46px; height: 28px; border-radius: 999px; background: #c3cbc0; position: relative; transition: background .15s ease; flex: none; }
+  .pushrow .knob { position: absolute; top: 3px; left: 3px; width: 22px; height: 22px; border-radius: 50%; background: #fff; transition: left .15s ease; box-shadow: 0 1px 3px rgba(0,0,0,.25); }
+  .pushrow.on .switch { background: #1d9a55; }
+  .pushrow.on .knob { left: 21px; }
+  .sheetSub { font-size: 12px; font-weight: 800; text-transform: uppercase; letter-spacing: 1px; color: #979d94; margin: 14px 0 2px; }
+  .srow { display: flex; align-items: center; gap: 8px; padding: 9px 0; border-bottom: 1px solid #f0f2ee; font-size: 14.5px; }
+  .srow:last-child { border-bottom: none; }
+  .srow .abody { flex: 1; min-width: 0; }
+  .srow.unseen .abody { font-weight: 700; }
+  .srow .atime { color: #9aa097; font-size: 12px; flex: none; }
+  .srow .udot { width: 8px; height: 8px; border-radius: 50%; background: #1d9a55; flex: none; }
+  .sempty { color: #9aa097; font-size: 14px; padding: 14px 0; text-align: center; }
 </style>
 </head>
 <body>
@@ -488,7 +507,7 @@ const PAGE = `<!DOCTYPE html>
     <button id="addBtn">Add</button>
   </div>
   <button id="clearBtn">Clear purchased</button>
-  <div class="ver" id="ver">v4 belltrace</div>
+  <div class="ver" id="ver">v5 bellsheet</div>
   </div>
   <div class="bulkactions">
     <div class="selcount" id="selCount"></div>
@@ -501,6 +520,17 @@ const PAGE = `<!DOCTYPE html>
     </div>
   </div>
 </footer>
+<div id=\"bellSheet\" class=\"sheet\" role=\"dialog\" aria-label=\"Notifications\">
+  <div class=\"sheetCard\">
+    <div class=\"sheetHead\"><span class=\"atitle\">Notifications</span><button class=\"ax\" id=\"sheetX\" aria-label=\"close\">&times;</button></div>
+    <button class=\"pushrow\" id=\"pushRow\" role=\"switch\" aria-checked=\"false\">
+      <span>Push notifications</span>
+      <span class=\"switch\"><span class=\"knob\"></span></span>
+    </button>
+    <div class=\"sheetSub\">Activity</div>
+    <div id=\"sheetAct\"></div>
+  </div>
+</div>
 <script>
 // If anything in this script throws on load, say so instead of looking dead.
 window.onerror = function (msg) {
@@ -580,12 +610,9 @@ async function updateBell() {
   } catch (e) { bellSay('bell check FAILED: ' + (e && e.message || e)); }
 }
 async function toggleNotifications() {
-  bellSay('bell: tap received');
   try {
     var reg = await navigator.serviceWorker.getRegistration();
-    bellSay('bell: registration ' + (reg ? 'found' : 'none'));
     var sub = reg ? await reg.pushManager.getSubscription() : null;
-    bellSay('bell: subscription ' + (sub ? 'found' : 'none'));
     if (sub) {
       await sub.unsubscribe();
       try {
@@ -594,31 +621,75 @@ async function toggleNotifications() {
       } catch (e) { /* server cleanup is best effort */ }
       storeSet('bellOn', '0');
       updateBell();
-      bellSay('bell: unsubscribed');
       return;
     }
     if (!pushSupported()) { alert('Push notifications are not supported in this browser.'); return; }
-    bellSay('bell: requesting permission');
     var perm = await Notification.requestPermission();
-    bellSay('bell: permission ' + perm);
     if (perm !== 'granted') { alert('Notifications are blocked. Allow them in Settings to get alerts.'); return; }
-    bellSay('bell: registering service worker');
     reg = await navigator.serviceWorker.register('sw.js');
-    bellSay('bell: waiting for worker to activate');
     reg = await navigator.serviceWorker.ready;
-    bellSay('bell: subscribing');
     sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64urlToBytes(VAPID_PUBLIC_KEY) });
-    bellSay('bell: saving subscription');
     await postSubscription(sub);
     storeSet('bellOn', '1');
     updateBell();
-    bellSay('bell: on');
   } catch (e) { bellSay('bell FAILED: ' + (e && e.message || e)); }
 }
-bellBtn.onclick = toggleNotifications;
+bellBtn.onclick = openSheet;
 // Passive subscription check on load: keeps the bell in sync after redeploys.
 // getRegistration/getSubscription never prompt and register nothing.
 updateBell();
+
+// ---- Bell sheet: push toggle + activity ----
+// Tapping the bell opens a panel: a push-notifications switch on top, then
+// the recent activity feed. Opening the panel marks activity seen.
+var sheet = document.getElementById('bellSheet');
+var sheetAct = document.getElementById('sheetAct');
+var pushRow = document.getElementById('pushRow');
+var lastEvents = [];
+function markSeen() {
+  storeSet('seenTs', new Date().toISOString());
+  actBanner.className = '';
+  actBanner.innerHTML = '';
+  bellBtn.classList.remove('hasunseen');
+}
+function syncPushRow() {
+  var on = bellBtn.classList.contains('on');
+  pushRow.classList.toggle('on', on);
+  pushRow.setAttribute('aria-checked', on ? 'true' : 'false');
+}
+function renderSheetAct() {
+  var seen = storeGet('seenTs') || '';
+  var evs = lastEvents.slice(0, 15);
+  var html = '';
+  for (var i = 0; i < evs.length; i++) {
+    var unseen = evs[i].updated_at > seen && (!who || evs[i].actor !== who);
+    html += '<div class="srow' + (unseen ? ' unseen' : '') + '">' +
+      (unseen ? '<span class="udot"></span>' : '') +
+      '<span class="abody"></span><span class="atime">' + relTime(evs[i].updated_at) + '</span></div>';
+  }
+  sheetAct.innerHTML = html || '<div class="sempty">No activity yet.</div>';
+  var bodies = sheetAct.querySelectorAll('.abody');
+  for (var j = 0; j < evs.length; j++) { bodies[j].textContent = evs[j].body; }
+}
+async function openSheet() {
+  syncPushRow();
+  renderSheetAct();
+  sheet.classList.add('open');
+  markSeen();
+  try { await refreshActivity(); } catch (e) { /* best effort */ }
+  if (sheet.classList.contains('open')) renderSheetAct();
+}
+function closeSheet() {
+  markSeen();
+  sheet.classList.remove('open');
+}
+document.getElementById('sheetX').onclick = closeSheet;
+sheet.addEventListener('click', function (e) { if (e.target === sheet) closeSheet(); });
+pushRow.onclick = async function () {
+  pushRow.disabled = true;
+  try { await toggleNotifications(); }
+  finally { pushRow.disabled = false; syncPushRow(); }
+};
 
 // ---- Notification activity feed (unread marker) ----
 function relTime(iso) {
@@ -633,12 +704,14 @@ async function refreshActivity() {
   try {
     var data = await api('/events');
     var events = data.events || [];
+    lastEvents = events;
     var seen = storeGet('seenTs');
     if (!seen) { storeSet('seenTs', new Date().toISOString()); return; } // first run: don't flag history
     var unseen = events.filter(function (e) {
       return e.updated_at > seen && (!who || e.actor !== who);
     });
     bellBtn.classList.toggle('hasunseen', unseen.length > 0);
+    if (sheet.classList.contains('open')) renderSheetAct();
     if (!unseen.length) { actBanner.className = ''; actBanner.innerHTML = ''; return; }
     var html = '<div class="ahead"><span class="atitle">Activity</span>' +
       '<button class="ax" id="actX" aria-label="dismiss">&times;</button></div>';
@@ -650,12 +723,7 @@ async function refreshActivity() {
     var bodies = actBanner.querySelectorAll('.abody');
     for (var j = 0; j < show.length; j++) { bodies[j].textContent = show[j].body; }
     actBanner.className = 'show';
-    document.getElementById('actX').onclick = function () {
-      storeSet('seenTs', new Date().toISOString());
-      actBanner.className = '';
-      actBanner.innerHTML = '';
-      bellBtn.classList.remove('hasunseen');
-    };
+    document.getElementById('actX').onclick = markSeen;
   } catch (e) { /* activity feed is best effort */ }
 }
 if ('serviceWorker' in navigator && navigator.serviceWorker.addEventListener) {
