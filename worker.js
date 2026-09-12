@@ -505,6 +505,14 @@ const PAGE = `<!DOCTYPE html>
   .dpreview { width: 100%; max-height: 220px; object-fit: contain; border-radius: 12px; margin: 4px 0 8px; }
   #recipeText { width: 100%; box-sizing: border-box; font-size: 16px; padding: 12px; border: 1.5px solid #e2dcc9; border-radius: 12px; outline: none; resize: vertical; background: #faf7ee; color: #22301f; }
   #recipeText:focus { border-color: #1d7a44; background: #fff; }
+  .urlrow { display: flex; gap: 8px; margin: 2px 0 4px; }
+  #recipeUrl { flex: 1; min-width: 0; font-size: 16px; padding: 11px 12px; border: 1.5px solid #e2dcc9; border-radius: 12px; outline: none; background: #faf7ee; color: #22301f; }
+  #recipeUrl:focus { border-color: #1d7a44; background: #fff; }
+  .fetchbtn { flex: none; align-self: center; }
+  .fetchbtn:disabled { opacity: .55; }
+  .rmsg { font-size: 13.5px; line-height: 1.45; margin: 6px 0 2px; }
+  .rmsg.err { color: #c74343; }
+  .rmsg.ok { color: #0e4023; }
   .netbadge { border: none; background: #b7791f; color: #fff; font-size: 12px; font-weight: 800; border-radius: 999px; padding: 7px 11px; cursor: pointer; }
   .lightbox { position: fixed; inset: 0; z-index: 60; background: rgba(10,15,12,.93); display: none; align-items: center; justify-content: center; padding: 24px; cursor: zoom-out; }
   .lightbox.open { display: flex; }
@@ -673,7 +681,13 @@ const PAGE = `<!DOCTYPE html>
 <div id="recipeSheet" class="sheet" role="dialog" aria-label="Import recipe">
   <div class="sheetCard">
     <div class="sheetHead"><span class="atitle">Import recipe</span><button class="ax" id="recipeX" aria-label="close">&times;</button></div>
-    <div class="sheetSub">Paste ingredients, one per line</div>
+    <div class="sheetSub">From a link</div>
+    <div class="urlrow">
+      <input id="recipeUrl" type="url" placeholder="Paste a recipe link&hellip;" autocomplete="off" enterkeyhint="go">
+      <button id="recipeFetch" class="abtn fetchbtn">Fetch</button>
+    </div>
+    <div id="recipeMsg" class="rmsg" style="display:none"></div>
+    <div class="sheetSub">Or paste ingredients, one per line</div>
     <textarea id="recipeText" rows="8" placeholder="2 cups flour&#10;3 eggs&#10;1 gal milk"></textarea>
     <div class="abtns"><button id="recipeAdd" class="abtn">Add items</button></div>
   </div>
@@ -1544,6 +1558,30 @@ function openRecipe() {
 function closeRecipe() { document.getElementById('recipeSheet').classList.remove('open'); }
 document.getElementById('recipeBtn').onclick = openRecipe;
 document.getElementById('recipeX').onclick = closeRecipe;
+document.getElementById('recipeFetch').onclick = function () {
+  var urlInput = document.getElementById('recipeUrl');
+  var msg = document.getElementById('recipeMsg');
+  var btn = document.getElementById('recipeFetch');
+  var url = urlInput.value.trim();
+  function say(t, cls) { msg.textContent = t; msg.className = 'rmsg ' + cls; msg.style.display = 'block'; }
+  if (!url) { say('Paste a recipe link first.', 'err'); return; }
+  msg.style.display = 'none';
+  btn.disabled = true; btn.textContent = 'Fetching\u2026';
+  fetch('api/items/recipe-fetch', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ url: url }) })
+    .then(function (r) { return r.json().then(function (d) { return { ok: r.ok, d: d }; }); })
+    .then(function (res) {
+      btn.disabled = false; btn.textContent = 'Fetch';
+      if (!res.ok || res.d.error) { say(res.d.error || 'Could not fetch that link.', 'err'); return; }
+      var ings = res.d.ingredients || [];
+      document.getElementById('recipeText').value = ings.join('\n');
+      say('Got ' + ings.length + ' ingredients' + (res.d.name ? ' from \u201C' + res.d.name + '\u201D' : '') + ' \u2014 review below, then Add items.', 'ok');
+    })
+    .catch(function () {
+      btn.disabled = false; btn.textContent = 'Fetch';
+      say('Could not reach that link. You can still paste the ingredients below.', 'err');
+    });
+};
 document.getElementById('recipeSheet').addEventListener('click', function (e) { if (e.target === this) closeRecipe(); });
 document.getElementById('recipeAdd').onclick = function () {
   var parsed = [];
@@ -1608,6 +1646,51 @@ function badRequest(msg) {
   return json({ error: msg }, 400);
 }
 
+// ---- Recipe URL import: fetch a recipe page, extract JSON-LD ingredients ----
+function isSafeRecipeUrl(u) {
+  var m = /^https?:\/\/([^\/:?#]+)/i.exec(u || '');
+  if (!m) return false;
+  var host = m[1].toLowerCase();
+  if (host === 'localhost' || host.slice(-10) === '.localhost') return false;
+  var ip = host.match(/^(\d+)\.(\d+)\.(\d+)\.(\d+)$/);
+  if (ip) {
+    var a = +ip[1], b = +ip[2];
+    if (a === 10 || a === 127 || (a === 172 && b >= 16 && b <= 31) ||
+        (a === 192 && b === 168) || (a === 169 && b === 254)) return false;
+  }
+  return true;
+}
+function findRecipeNode(node) {
+  if (!node || typeof node !== 'object') return null;
+  if (Array.isArray(node)) {
+    for (var i = 0; i < node.length; i++) { var r = findRecipeNode(node[i]); if (r) return r; }
+    return null;
+  }
+  var t = node['@type'];
+  if (t === 'Recipe' || (Array.isArray(t) && t.indexOf('Recipe') >= 0)) return node;
+  if (node['@graph']) { var g = findRecipeNode(node['@graph']); if (g) return g; }
+  return null;
+}
+function extractRecipeFromHtml(html) {
+  var re = /<script[^>]+type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi;
+  var m;
+  while ((m = re.exec(html)) !== null) {
+    var raw = m[1].trim();
+    if (!raw) continue;
+    var data;
+    try { data = JSON.parse(raw); } catch (e) { continue; }
+    var recipe = findRecipeNode(data);
+    if (recipe) {
+      var ing = recipe.recipeIngredient || recipe.ingredients;
+      if (Array.isArray(ing)) {
+        var list = ing.filter(function (x) { return typeof x === 'string'; })
+          .map(function (x) { return x.trim(); }).filter(Boolean);
+        if (list.length) return { name: (recipe.name || '').toString().slice(0, 120), ingredients: list.slice(0, 100) };
+      }
+    }
+  }
+  return null;
+}
 async function handleApi(request, env, ctx, rest) {
   const method = request.method;
   const db = env.DB;
@@ -1655,6 +1738,31 @@ async function handleApi(request, env, ctx, rest) {
     if (method !== 'POST') return json({ error: 'Method not allowed' }, 405);
     await db.prepare('DELETE FROM items WHERE checked = 1').run();
     return json({ ok: true });
+  }
+
+  // POST /api/items/recipe-fetch — { url } → { name, ingredients[] } via recipe JSON-LD.
+  // Lets the user point at a recipe link instead of pasting ingredients.
+  if (rest.length === 1 && rest[0] === 'recipe-fetch') {
+    if (method !== 'POST') return json({ error: 'Method not allowed' }, 405);
+    let rbody;
+    try { rbody = await request.json(); } catch { return badRequest('Invalid JSON'); }
+    var rurl = (rbody.url || '').toString().trim().slice(0, 500);
+    if (!isSafeRecipeUrl(rurl)) return badRequest('That link looks invalid');
+    var ctrl = new AbortController();
+    var timer = setTimeout(function () { ctrl.abort(); }, 12000);
+    var rresp;
+    try {
+      rresp = await fetch(rurl, { signal: ctrl.signal, redirect: 'follow',
+        headers: { 'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1',
+                   'Accept': 'text/html,application/xhtml+xml' } });
+    } catch (e) { clearTimeout(timer); return json({ error: 'Could not reach that page' }, 502); }
+    clearTimeout(timer);
+    if (!rresp.ok) return json({ error: 'That page returned an error (' + rresp.status + ')' }, 502);
+    var rhtml = await rresp.text();
+    if (rhtml.length > 2000000) rhtml = rhtml.slice(0, 2000000);
+    var found = extractRecipeFromHtml(rhtml);
+    if (!found) return json({ error: 'No recipe found on that page' }, 422);
+    return json(found);
   }
 
   // GET /api/items/events — recent notification activity for the unread marker.
