@@ -426,97 +426,83 @@ const PAGE = `<!DOCTYPE html>
 <style>
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
   body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif; color: #20241f; padding-bottom: 200px;
-    background: radial-gradient(120% 42% at 50% 0%, #faf8f1 0%, #f4f2ec 55%, #edebe3 100%); background-attachment: fixed; }
+    background: #f4f3ed; }
   :focus-visible { outline: 2px solid #1d9a55; outline-offset: 2px; }
   ::selection { background: #bfe6cf; }
-  header { position: sticky; top: 0; z-index: 10; background: linear-gradient(150deg, #22a75e 0%, #0e6b3a 58%, #093f23 100%); color: #fff; padding: calc(16px + env(safe-area-inset-top)) 18px 16px; box-shadow: 0 2px 14px rgba(10,60,35,.38); border-bottom: 1px solid rgba(255,255,255,.14); }
+  header { position: sticky; top: 0; z-index: 10; background: linear-gradient(160deg, #1f9e57 0%, #0e6b3a 60%, #0a4a28 100%); color: #fff; padding: calc(12px + env(safe-area-inset-top)) 16px 12px; box-shadow: 0 2px 12px rgba(10,60,35,.30); }
   .headrow { display: flex; align-items: center; justify-content: space-between; }
-  h1 { margin: 0; font-size: 24px; font-weight: 800; letter-spacing: -0.5px; text-shadow: 0 1px 3px rgba(0,0,0,.22); }
-  .sub { font-size: 13px; opacity: .85; margin-top: 2px; font-weight: 500; }
-  #whoBtn { border: 1px solid rgba(255,255,255,.45); background: rgba(255,255,255,.16); color: #fff; font-size: 14px; font-weight: 600; padding: 8px 14px; border-radius: 999px; cursor: pointer; transition: transform .12s ease; }
+  h1 { margin: 0; font-size: 22px; font-weight: 800; letter-spacing: -0.4px; }
+  .sub { font-size: 12.5px; opacity: .8; margin-top: 1px; font-weight: 500; }
+  #whoBtn { border: 1px solid rgba(255,255,255,.4); background: rgba(255,255,255,.15); color: #fff; font-size: 13.5px; font-weight: 600; padding: 7px 13px; border-radius: 999px; cursor: pointer; transition: transform .12s ease; }
   #whoBtn:active { transform: scale(.94); }
   .headbtns { display: flex; gap: 8px; align-items: center; }
-  #bellBtn { border: 1px solid rgba(255,255,255,.45); background: rgba(255,255,255,.16); color: #fff; font-size: 17px; padding: 7px 11px; border-radius: 999px; cursor: pointer; opacity: .45; transition: opacity .15s ease, transform .12s ease; }
+  #bellBtn { border: 1px solid rgba(255,255,255,.4); background: rgba(255,255,255,.15); color: #fff; font-size: 16px; padding: 6px 10px; border-radius: 999px; cursor: pointer; opacity: .45; transition: opacity .15s ease, transform .12s ease; position: relative; }
   #bellBtn.on { opacity: 1; }
   #bellBtn:active { transform: scale(.94); }
   .ver { text-align: center; font-size: 11px; opacity: .55; margin-top: 10px; }
-  .chips { display: flex; gap: 8px; margin-top: 14px; }
-  .chip { flex: 1; padding: 11px 0; border: none; border-radius: 999px; background: rgba(255,255,255,.16); color: #fff; font-size: 15px; font-weight: 700; text-align: center; cursor: pointer; transition: all .15s ease; }
+  .chips { display: flex; gap: 0; margin-top: 12px; background: rgba(255,255,255,.16); border-radius: 999px; padding: 3px; }
+  .chip { flex: 1; padding: 9px 0; border: none; border-radius: 999px; background: none; color: #fff; font-size: 14.5px; font-weight: 700; text-align: center; cursor: pointer; transition: all .15s ease; }
   .chip.active { background: #fff; color: #0b5a34; box-shadow: 0 2px 6px rgba(0,0,0,.2); }
-  .section { margin: 22px 18px 0; font-size: 12.5px; font-weight: 800; text-transform: uppercase; letter-spacing: 1.2px; color: #8a9187; }
-  ul { list-style: none; margin: 10px 0 0; padding: 0 14px; }
-  li { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; background: #fff; border-radius: 20px; padding: 14px 14px 14px 12px; margin-bottom: 10px; border-left: 5px solid #d8dcd4;
-    box-shadow: 0 1px 2px rgba(25,35,25,.04), 0 8px 22px rgba(25,35,25,.07);
+  .section { display: flex; align-items: center; justify-content: space-between; margin: 20px 18px 0; font-size: 12px; font-weight: 800; text-transform: uppercase; letter-spacing: 1.1px; color: #8a9187; }
+  ul { list-style: none; margin: 8px 0 0; padding: 0 12px; }
+  li { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; background: #fff; border-radius: 16px; padding: 12px 12px 12px 10px; margin-bottom: 8px; border-left: 4px solid #d8dcd4;
+    box-shadow: 0 1px 3px rgba(25,35,25,.07);
     transition: transform .15s ease, box-shadow .15s ease; }
   li:active { transform: scale(.985); }
   li.s-heb { border-left-color: #2f7de1; }
   li.s-tjs { border-left-color: #e05757; }
   li.s-costco { border-left-color: #123a7d; }
-  li.s-either { border-left-color: #b9c2b5; }
-  li.purchased { opacity: .65; }
-  .check { width: 34px; height: 34px; border: 2px solid #c3cbc0; border-radius: 50%; flex: none; cursor: pointer; background: #fff; font-size: 18px; line-height: 1; color: #fff; transition: transform .12s ease, background .12s ease; }
+  li.s-either { border-left-color: #c9cec4; }
+  li.purchased { opacity: .6; }
+  .check { width: 30px; height: 30px; border: 2px solid #c3cbc0; border-radius: 50%; flex: none; cursor: pointer; background: #fff; font-size: 16px; line-height: 1; color: #fff; transition: transform .12s ease, background .12s ease; }
   .check:active { transform: scale(.85); }
   li.purchased .check { background: #1d9a55; border-color: #1d9a55; }
   .mid { flex: 1; min-width: 0; }
-  .name { font-size: 17px; font-weight: 600; letter-spacing: -0.2px; word-break: break-word; }
+  .name { font-size: 16.5px; font-weight: 600; letter-spacing: -0.2px; word-break: break-word; }
   li.purchased .name { text-decoration: line-through; color: #9a9d98; font-weight: 400; }
-  .meta { font-size: 12.5px; color: #8f948c; margin-top: 3px; }
-  .tag { flex: none; font-size: 11.5px; font-weight: 800; text-transform: uppercase; letter-spacing: .4px; padding: 6px 10px; border-radius: 999px; background: #eef0ec; color: #6d746a; }
+  .meta { font-size: 12.5px; color: #8f948c; margin-top: 2px; }
+  .tag { flex: none; font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: .4px; padding: 5px 9px; border-radius: 999px; background: #eef0ec; color: #6d746a; }
   .tag.heb { background: #e2efff; color: #1663cc; }
   .tag.tjs { background: #ffe6e6; color: #c74343; }
   .tag.costco { background: #e4ebfa; color: #1d3f8f; }
   .rowbtn { flex: none; border: none; background: none; font-size: 18px; color: #b3b8b0; padding: 8px 6px; cursor: pointer; }
   .empty { text-align: center; color: #9aa097; margin: 44px 32px; font-size: 15px; line-height: 1.7; }
-  footer { position: fixed; bottom: 12px; left: 12px; right: 12px; background: rgba(255,255,255,.98); border-radius: 22px; border: 1px solid rgba(20,40,25,.07); box-shadow: 0 8px 28px rgba(20,40,25,.16), 0 2px 6px rgba(20,40,25,.08); padding: 12px 12px calc(12px + env(safe-area-inset-bottom)); }
-  .addrow { display: flex; gap: 8px; margin-bottom: 10px; }
-  #itemName { flex: 1; font-size: 17px; padding: 14px 16px; border: 1.5px solid #d5dad2; border-radius: 16px; background: #f7f9f5; outline: none; }
+  footer { position: fixed; bottom: 10px; left: 10px; right: 10px; background: rgba(255,255,255,.98); border-radius: 20px; border: 1px solid rgba(20,40,25,.06); box-shadow: 0 8px 28px rgba(20,40,25,.14), 0 2px 6px rgba(20,40,25,.07); padding: 10px 10px calc(10px + env(safe-area-inset-bottom)); }
+  .addrow { display: flex; gap: 8px; margin-bottom: 8px; }
+  #itemName { flex: 1; font-size: 16.5px; padding: 13px 15px; border: 1.5px solid #d5dad2; border-radius: 14px; background: #f7f9f5; outline: none; min-width: 0; }
   #itemName:focus { border-color: #1d9a55; background: #fff; }
-  #addBtn { font-size: 17px; font-weight: 800; padding: 14px 22px; border: none; border-radius: 16px; background: linear-gradient(150deg, #1d9a55, #0e6b3a); color: #fff; cursor: pointer; box-shadow: 0 3px 10px rgba(20,120,65,.35); transition: transform .12s ease; }
+  #addBtn { font-size: 16.5px; font-weight: 800; padding: 13px 20px; border: none; border-radius: 14px; background: linear-gradient(150deg, #1d9a55, #0e6b3a); color: #fff; cursor: pointer; box-shadow: 0 3px 10px rgba(20,120,65,.3); transition: transform .12s ease; flex: none; }
   #addBtn:active { transform: scale(.95); }
-  .storepick { display: flex; gap: 8px; margin-bottom: 10px; }
-  .storepick button { flex: 1; padding: 11px 0; font-size: 14px; font-weight: 700; border: 1.5px solid #d5dad2; border-radius: 14px; background: #fff; color: #4a5148; cursor: pointer; transition: all .12s ease; }
+  .storepick { display: flex; gap: 8px; margin-bottom: 8px; }
+  .storepick button { flex: 1; padding: 10px 0; font-size: 13.5px; font-weight: 700; border: 1.5px solid #d5dad2; border-radius: 12px; background: #fff; color: #4a5148; cursor: pointer; transition: all .12s ease; }
   .storepick button.active { background: #0e6b3a; color: #fff; border-color: #0e6b3a; }
-  #clearBtn { width: 100%; border: none; background: none; color: #d05240; font-size: 15px; font-weight: 700; padding: 8px; cursor: pointer; }
+  #clearBtn { width: 100%; border: none; background: none; color: #d05240; font-size: 14.5px; font-weight: 700; padding: 7px; cursor: pointer; }
   #err { display: none; background: #d05240; color: #fff; font-size: 14px; font-weight: 700; padding: 10px 16px; text-align: center; }
-  .section { display: flex; align-items: center; justify-content: space-between; }
-  #selectBtn { border: none; background: none; color: #1d9a55; font-size: 14px; font-weight: 800; cursor: pointer; padding: 4px 8px; }
-  .selbox { display: none; width: 26px; height: 26px; border: 2px solid #c3cbc0; border-radius: 8px; flex: none; }
+  #selectBtn { border: none; background: none; color: #1d9a55; font-size: 13.5px; font-weight: 800; cursor: pointer; padding: 4px 8px; }
+  .selbox { display: none; width: 24px; height: 24px; border: 2px solid #c3cbc0; border-radius: 8px; flex: none; }
   body.selecting .selbox { display: block; }
   body.selecting li.selected .selbox { background: #1d9a55; border-color: #1d9a55; }
   body.selecting li.selected { background: #e9f5ee; }
   body.selecting .check, body.selecting .rowbtn { display: none; }
-  .actions { flex: 1 1 100%; display: flex; align-items: center; gap: 8px; margin-top: 4px; }
+  .actions { flex: 1 1 100%; display: flex; align-items: center; gap: 6px; margin-top: 2px; }
   .actions .spacer { flex: 1; }
-  .abtn { border: 1.5px solid #d5dad2; background: #f7f9f5; border-radius: 12px; font-size: 14px; font-weight: 700; color: #4a5148; padding: 9px 14px; cursor: pointer; transition: transform .12s ease; }
+  .abtn { border: 1px solid #dfe4dc; background: #f7f9f5; border-radius: 10px; font-size: 13.5px; font-weight: 700; color: #4a5148; padding: 8px 12px; cursor: pointer; transition: transform .12s ease; }
   /* Quantities, staples, details, in-store mode, offline */
-  #itemQty { width: 64px; flex: none; font-size: 17px; padding: 14px 10px; border: 1.5px solid #d5dad2; border-radius: 16px; background: #f7f9f5; outline: none; text-align: center; }
+  #itemQty { width: 60px; flex: none; font-size: 16.5px; padding: 13px 8px; border: 1.5px solid #d5dad2; border-radius: 14px; background: #f7f9f5; outline: none; text-align: center; }
   #itemQty:focus { border-color: #1d9a55; background: #fff; }
-  #recipeBtn { flex: none; font-size: 18px; padding: 12px 14px; border: 1.5px solid #d5dad2; border-radius: 16px; background: #f7f9f5; cursor: pointer; }
-  .qwrap { display: inline-flex; align-items: center; gap: 6px; margin-left: 10px; vertical-align: middle; }
-  .qbtn { width: 30px; height: 30px; border-radius: 50%; border: 1.5px solid #d5dad2; background: #f7f9f5; font-size: 17px; font-weight: 800; color: #0e6b3a; cursor: pointer; line-height: 1; }
-  .qbadge { font-size: 14px; font-weight: 800; color: #0e6b3a; background: #e9f5ee; border-radius: 999px; padding: 4px 10px; white-space: nowrap; }
+  #recipeBtn { flex: none; font-size: 17px; padding: 11px 13px; border: 1.5px solid #d5dad2; border-radius: 14px; background: #f7f9f5; cursor: pointer; }
+  .qwrap { display: inline-flex; align-items: center; gap: 6px; margin-left: 8px; vertical-align: middle; }
+  .qbtn { width: 28px; height: 28px; border-radius: 50%; border: 1.5px solid #d5dad2; background: #f7f9f5; font-size: 16px; font-weight: 800; color: #0e6b3a; cursor: pointer; line-height: 1; }
+  .qbadge { font-size: 13.5px; font-weight: 800; color: #0e6b3a; background: #e9f5ee; border-radius: 999px; padding: 4px 10px; white-space: nowrap; }
   button.qbadge.textq { border: 1.5px dashed #b9c4b6; background: none; color: #8a938a; cursor: pointer; }
   .noteline { color: #6b6250; font-style: italic; cursor: pointer; }
   .priceline { color: #0e6b3a; font-weight: 700; cursor: pointer; }
   .thumb { width: 44px; height: 44px; object-fit: cover; border-radius: 10px; margin-top: 6px; cursor: pointer; }
   .triptotal { font-weight: 700; color: #0e6b3a; }
-  .staplesbtn { width: 100%; margin-top: 10px; border: 1.5px dashed #cfe3d6; background: #f4faf6; color: #0e6b3a; font-size: 15px; font-weight: 800; border-radius: 12px; padding: 12px; cursor: pointer; }
+  .staplesbtn { width: 100%; margin-top: 8px; border: 1.5px dashed #cfe3d6; background: #f4faf6; color: #0e6b3a; font-size: 14.5px; font-weight: 800; border-radius: 12px; padding: 11px; cursor: pointer; }
   .staplesbtn:active { transform: scale(.99); }
-  .sheetCard.tall { max-height: 78vh; display: flex; flex-direction: column; }
-  .sheetCard.tall::before { content: none; }
-  .grabhit { padding: 10px 30px 8px; cursor: grab; touch-action: none; }
-  .grabhit .grabber { width: 42px; height: 5px; border-radius: 999px; background: #dcded8; margin: 0 auto; }
-  .sheetCard { transition: transform .18s ease-out; }
-  .staplelist { overflow-y: auto; -webkit-overflow-scrolling: touch; margin: 2px -4px; }
-  .staplerow { display: flex; align-items: center; gap: 10px; padding: 11px 4px; border-bottom: 1px solid #eef2ee; }
-  .stapleinfo { flex: 1; min-width: 0; }
-  .staplename { font-weight: 700; font-size: 16px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .staplemeta { font-size: 12px; color: #8a938a; margin-top: 2px; }
-  .sadd { border: none; background: #0e6b3a; color: #fff; font-weight: 800; border-radius: 999px; padding: 10px 18px; font-size: 14px; cursor: pointer; flex: none; }
-  .sadd:active { transform: scale(.96); }
-  .sdel2 { border: none; background: #f3e2de; color: #b3402e; font-weight: 800; border-radius: 50%; width: 34px; height: 34px; font-size: 17px; line-height: 1; cursor: pointer; flex: none; }
   .dlabel { display: block; font-size: 14px; font-weight: 700; color: #4a5148; margin: 12px 0; }
-  .dlabel input { display: block; width: 100%; box-sizing: border-box; margin-top: 6px; font-size: 16px; padding: 12px; border: 1.5px solid #d5dad2; border-radius: 12px; outline: none; }
+  .dlabel input { display: block; width: 100%; box-sizing: border-box; margin-top: 6px; font-size: 16px; padding: 11px 12px; border: 1.5px solid #d5dad2; border-radius: 12px; outline: none; }
   .dlabel input:focus { border-color: #1d9a55; }
   .dpreview { width: 100%; max-height: 220px; object-fit: contain; border-radius: 12px; margin: 4px 0 8px; }
   #recipeText { width: 100%; box-sizing: border-box; font-size: 16px; padding: 12px; border: 1.5px solid #d5dad2; border-radius: 12px; outline: none; resize: vertical; }
@@ -544,21 +530,20 @@ const PAGE = `<!DOCTYPE html>
   .selcount { text-align: center; font-size: 14px; font-weight: 700; color: #4a5148; margin-bottom: 8px; }
   #bulkAll { background: none; border: none; color: #1663cc; font-size: 14px; font-weight: 700; cursor: pointer; padding: 2px 8px; }
   .abtns { display: flex; gap: 8px; }
-  .abtns button { flex: 1; padding: 13px 0; font-size: 15px; font-weight: 800; border: none; border-radius: 14px; cursor: pointer; }
+  .abtns button { flex: 1; padding: 12px 0; font-size: 15px; font-weight: 800; border: none; border-radius: 14px; cursor: pointer; }
   #bulkClaim { background: #e2efff; color: #1663cc; }
   #bulkBuy { background: linear-gradient(150deg, #1d9a55, #0e6b3a); color: #fff; }
   #bulkDel { background: #ffe6e6; color: #c74343; }
   #bulkCancel { background: #eef0ec; color: #4a5148; }
-  li.urgent { border-left-color: #e05240; background: #fff9f7; box-shadow: 0 1px 2px rgba(224,82,64,.14), 0 8px 22px rgba(224,82,64,.10); }
-  .utag { flex: none; font-size: 11.5px; font-weight: 800; text-transform: uppercase; letter-spacing: .4px; padding: 6px 10px; border-radius: 999px; background: #ffe6e6; color: #c74343; }
+  li.urgent { border-left-color: #e05240; background: #fff9f7; box-shadow: 0 1px 3px rgba(224,82,64,.12); }
+  .utag { flex: none; font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: .4px; padding: 5px 9px; border-radius: 999px; background: #ffe6e6; color: #c74343; }
   #bulkUrgent { background: #fff3e0; color: #d97a1f; }
-  #bellBtn { position: relative; }
   #bellBtn .dot { position: absolute; top: 5px; right: 7px; width: 9px; height: 9px; border-radius: 50%; background: #ff453a; border: 1.5px solid #0e6b3a; display: none; }
   #bellBtn.hasunseen .dot { display: block; }
-  #actBanner { display: none; margin: 12px 16px 0; background: #fff; border-radius: 16px; box-shadow: 0 1px 2px rgba(25,35,25,.05), 0 6px 18px rgba(25,35,25,.06); padding: 4px 12px 6px; font-size: 14px; }
+  #actBanner { display: none; margin: 12px 14px 0; background: #fff; border-radius: 14px; box-shadow: 0 1px 3px rgba(25,35,25,.07); padding: 4px 12px 6px; font-size: 14px; }
   #actBanner.show { display: block; }
   #actBanner .ahead { display: flex; align-items: center; justify-content: space-between; padding-top: 6px; }
-  #actBanner .atitle { font-size: 12px; font-weight: 800; text-transform: uppercase; letter-spacing: 1px; color: #979d94; }
+  #actBanner .atitle { font-size: 11.5px; font-weight: 800; text-transform: uppercase; letter-spacing: 1px; color: #979d94; }
   #actBanner .ax { border: none; background: none; font-size: 18px; line-height: 1; color: #b3b8b0; cursor: pointer; padding: 4px 2px; }
   #actBanner .arow { display: flex; align-items: center; gap: 8px; padding: 7px 0; border-bottom: 1px solid #f0f2ee; }
   #actBanner .arow:last-child { border-bottom: none; }
@@ -566,24 +551,44 @@ const PAGE = `<!DOCTYPE html>
   #actBanner .atime { color: #9aa097; font-size: 12px; flex: none; }
   .sheet { position: fixed; inset: 0; z-index: 50; background: rgba(20,30,22,.45); display: none; align-items: flex-end; justify-content: center; }
   .sheet.open { display: flex; }
-  .sheetCard { background: #fff; border-radius: 22px 22px 0 0; width: 100%; max-width: 560px; max-height: 82vh; overflow-y: auto; padding: 6px 16px calc(20px + env(safe-area-inset-bottom)); animation: sheetup .18s ease-out; }
+  .sheetCard { background: #fff; border-radius: 22px 22px 0 0; width: 100%; max-width: 560px; max-height: 82vh; overflow-y: auto; padding: 6px 16px calc(20px + env(safe-area-inset-bottom)); animation: sheetup .18s ease-out; transition: transform .18s ease-out; }
   .sheetCard::before { content: ''; display: block; width: 42px; height: 5px; border-radius: 999px; background: #dcded8; margin: 8px auto 2px; }
   @keyframes sheetup { from { transform: translateY(30px); opacity: .5; } to { transform: none; opacity: 1; } }
   .sheetHead { display: flex; align-items: center; justify-content: space-between; padding: 10px 0 2px; }
-  .sheetHead .atitle { font-size: 12px; font-weight: 800; text-transform: uppercase; letter-spacing: 1px; color: #979d94; }
-  .pushrow { display: flex; align-items: center; justify-content: space-between; width: 100%; border: none; background: #f4f6f3; border-radius: 14px; padding: 13px 14px; font-size: 16px; font-weight: 600; color: #20241f; cursor: pointer; margin: 8px 0 2px; font-family: inherit; }
+  .sheetHead .atitle { font-size: 11.5px; font-weight: 800; text-transform: uppercase; letter-spacing: 1px; color: #979d94; }
+  .ax { border: none; background: #eef1ee; width: 30px; height: 30px; border-radius: 50%; font-size: 16px; line-height: 1; color: #6d746a; cursor: pointer; flex: none; }
+  .ax:active { transform: scale(.9); }
+  .pushrow { display: flex; align-items: center; justify-content: space-between; width: 100%; border: none; background: #f4f6f3; border-radius: 14px; padding: 12px 14px; font-size: 15.5px; font-weight: 600; color: #20241f; cursor: pointer; margin: 8px 0 2px; font-family: inherit; }
   .pushrow .switch { width: 46px; height: 28px; border-radius: 999px; background: #c3cbc0; position: relative; transition: background .15s ease; flex: none; }
   .pushrow .knob { position: absolute; top: 3px; left: 3px; width: 22px; height: 22px; border-radius: 50%; background: #fff; transition: left .15s ease; box-shadow: 0 1px 3px rgba(0,0,0,.25); }
   .pushrow.on .switch { background: #1d9a55; }
   .pushrow.on .knob { left: 21px; }
-  .sheetSub { font-size: 12px; font-weight: 800; text-transform: uppercase; letter-spacing: 1px; color: #979d94; margin: 14px 0 2px; }
-  .srow { display: flex; align-items: center; gap: 8px; padding: 9px 0; border-bottom: 1px solid #f0f2ee; font-size: 14.5px; }
+  .sheetSub { font-size: 11.5px; font-weight: 800; text-transform: uppercase; letter-spacing: 1px; color: #979d94; margin: 14px 0 2px; }
+  .srow { display: flex; align-items: center; gap: 8px; padding: 8px 0; border-bottom: 1px solid #f0f2ee; font-size: 14.5px; }
   .srow:last-child { border-bottom: none; }
   .srow .abody { flex: 1; min-width: 0; }
   .srow.unseen .abody { font-weight: 700; }
   .srow .atime { color: #9aa097; font-size: 12px; flex: none; }
   .srow .udot { width: 8px; height: 8px; border-radius: 50%; background: #1d9a55; flex: none; }
   .sempty { color: #9aa097; font-size: 14px; padding: 14px 0; text-align: center; }
+  /* Staples sheet: compact design */
+  .sheetCard.tall { max-height: 78vh; display: flex; flex-direction: column; }
+  .sheetCard.tall::before { content: none; }
+  .grabhit { padding: 10px 30px 8px; cursor: grab; touch-action: none; }
+  .grabhit .grabber { width: 42px; height: 5px; border-radius: 999px; background: #dcded8; margin: 0 auto; }
+  .stapleHead { display: flex; align-items: center; justify-content: space-between; padding: 4px 2px 0; }
+  .stapleKicker { font-size: 11.5px; font-weight: 800; letter-spacing: .12em; color: #8a938a; }
+  #stapleSheet .staplelist { overflow-y: auto; -webkit-overflow-scrolling: touch; margin: 2px -14px 0; padding: 0 14px; }
+  #stapleSheet .staplerow { display: flex; align-items: center; gap: 8px; padding: 10px 2px; border-bottom: 1px solid #f0f3f0; }
+  #stapleSheet .stapleinfo { flex: 1; min-width: 0; }
+  #stapleSheet .staplename { font-size: 15px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #stapleSheet .staplemeta { font-size: 12.5px; color: #8a938a; margin-top: 1px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #stapleSheet .sadd { border: none; background: #0e6b3a; color: #fff; font-weight: 700; border-radius: 50%; width: 36px; height: 36px; padding: 0; font-size: 22px; line-height: 1; cursor: pointer; flex: none; }
+  #stapleSheet .sadd:active { transform: scale(.9); }
+  #stapleSheet .sdel2 { border: none; background: none; color: #c2c8c2; font-weight: 400; border-radius: 50%; width: 32px; height: 32px; padding: 0; font-size: 19px; line-height: 1; cursor: pointer; flex: none; }
+  #stapleSheet .sdel2:active { color: #b3402e; }
+  #stapleSheet .abtns { margin-top: 12px; }
+  #stapleSheet .abtn { background: #eef7f1; border: none; color: #0e6b3a; }
 </style>
 </head>
 <body>
@@ -678,8 +683,7 @@ const PAGE = `<!DOCTYPE html>
 <div id="stapleSheet" class="sheet" role="dialog" aria-label="Staples">
   <div class="sheetCard tall">
     <div class="grabhit" id="stapleGrab"><div class="grabber"></div></div>
-    <div class="sheetHead"><span class="atitle">Staples</span><button class="ax" id="stapleSheetX" aria-label="close">&times;</button></div>
-    <div class="sheetSub">Tap Add to put a staple on the list</div>
+    <div class="stapleHead"><span class="stapleKicker" id="stapleKicker">STAPLES</span><button class="ax" id="stapleSheetX" aria-label="close">&times;</button></div>
     <div id="stapleList" class="staplelist"></div>
     <div class="abtns"><button id="stapleNew" class="abtn">&#65291; New staple</button></div>
   </div>
@@ -1396,6 +1400,8 @@ function loadStaples() {
 function updateStaplesBtn() {
   document.getElementById('staplesOpen').innerHTML =
     '&#128204; Staples' + (staples.length ? ' (' + staples.length + ')' : '');
+  var k = document.getElementById('stapleKicker');
+  if (k) k.textContent = 'STAPLES \u00B7 ' + staples.length;
 }
 function isDupName(name) {
   return items.some(function (it) { return !it.checked && it.name.toLowerCase() === name.toLowerCase(); });
@@ -1467,7 +1473,8 @@ function renderStapleSheet() {
     info.appendChild(meta);
     var add = document.createElement('button');
     add.className = 'sadd';
-    add.textContent = 'Add';
+    add.textContent = '+';
+    add.setAttribute('aria-label', 'Add ' + s.name + ' to list');
     add.onclick = function () { addStapleToList(s); };
     var del = document.createElement('button');
     del.className = 'sdel2';
