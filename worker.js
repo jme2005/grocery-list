@@ -501,10 +501,15 @@ const PAGE = `<!DOCTYPE html>
   .thumb { width: 44px; height: 44px; object-fit: cover; border-radius: 10px; margin-top: 6px; cursor: pointer; }
   .triptotal { font-weight: 700; color: #0e6b3a; }
   .staples { display: flex; align-items: center; gap: 8px; margin-top: 10px; overflow-x: auto; padding-bottom: 2px; }
-  .stapleslabel { font-size: 12px; font-weight: 800; color: #8a938a; text-transform: uppercase; letter-spacing: .04em; flex: none; }
+  .stapleslabel { font-size: 12px; font-weight: 800; color: #8a938a; text-transform: uppercase; letter-spacing: .04em; flex: none; border: none; background: none; cursor: pointer; padding: 6px 2px; }
+  .staples.editing .stapleslabel { color: #0e6b3a; }
   #stapleChips { display: flex; gap: 8px; }
   .staplechip { flex: none; border: 1.5px solid #cfe3d6; background: #eef7f1; color: #0e6b3a; font-size: 14px; font-weight: 700; border-radius: 999px; padding: 8px 14px; cursor: pointer; }
   .staplechip.add { background: none; border-style: dashed; color: #8a938a; }
+  .staples.editing .staplechip { animation: stapleshake .3s ease-in-out infinite; }
+  .staples.editing .staplechip.add { animation: none; }
+  @keyframes stapleshake { 0%, 100% { transform: rotate(0deg); } 25% { transform: rotate(-2deg); } 75% { transform: rotate(2deg); } }
+  .sdel { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; margin-left: 8px; border-radius: 50%; background: #d05240; color: #fff; font-size: 14px; font-weight: 800; line-height: 1; vertical-align: 1px; }
   .dlabel { display: block; font-size: 14px; font-weight: 700; color: #4a5148; margin: 12px 0; }
   .dlabel input { display: block; width: 100%; box-sizing: border-box; margin-top: 6px; font-size: 16px; padding: 12px; border: 1.5px solid #d5dad2; border-radius: 12px; outline: none; }
   .dlabel input:focus { border-color: #1d9a55; }
@@ -616,7 +621,7 @@ const PAGE = `<!DOCTYPE html>
     <button id="recipeBtn" title="import recipe">&#x1F4CB;</button>
   </div>
   <div class="staples" id="staplesRow">
-    <span class="stapleslabel">Staples</span>
+    <button class="stapleslabel" id="staplesEdit">Staples</button>
     <span id="stapleChips"></span>
     <button id="stapleAdd" class="staplechip add" title="add a staple">&#65291;</button>
   </div>
@@ -1357,6 +1362,7 @@ document.getElementById('clearBtn').onclick = function () {
 
 // ---- Staples: one-tap re-add of weekly regulars ----
 var staples = [];
+var editingStaples = false;
 function loadStaples() {
   api('/staples').then(function (data) { staples = data || []; renderStaples(); })
     .catch(function () { staples = []; renderStaples(); });
@@ -1368,22 +1374,37 @@ function renderStaples() {
     var c = document.createElement('button');
     c.className = 'staplechip';
     c.textContent = ((s.qty || '').trim() ? s.qty.trim() + ' ' : '') + s.name;
-    c.title = 'Tap to add · long-press to delete';
-    c.onclick = function () {
-      api('/staples/' + s.id + '/add', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ by: who }) })
-        .then(refresh).catch(function () { showErr('Could not add staple'); });
-    };
-    c.oncontextmenu = function (e) {
-      e.preventDefault();
-      if (confirm('Delete staple "' + s.name + '"?')) {
-        api('/staples/' + s.id, { method: 'DELETE' })
-          .then(loadStaples).catch(function () { showErr('Could not delete staple'); });
-      }
-    };
+    if (editingStaples) {
+      var x = document.createElement('span');
+      x.className = 'sdel';
+      x.textContent = '\u00D7';
+      x.setAttribute('aria-label', 'delete staple');
+      x.onclick = function (e) {
+        e.stopPropagation();
+        if (confirm('Delete staple "' + s.name + '"?')) {
+          api('/staples/' + s.id, { method: 'DELETE' })
+            .then(loadStaples).catch(function () { showErr('Could not delete staple'); });
+        }
+      };
+      c.appendChild(x);
+      c.onclick = function (e) { e.stopPropagation(); };
+    } else {
+      c.title = 'Tap to add to the list';
+      c.onclick = function () {
+        api('/staples/' + s.id + '/add', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ by: who }) })
+          .then(refresh).catch(function () { showErr('Could not add staple'); });
+      };
+    }
     wrap.appendChild(c);
   });
+  document.getElementById('staplesRow').classList.toggle('editing', editingStaples);
+  document.getElementById('staplesEdit').textContent = editingStaples ? 'Done' : 'Staples';
 }
+document.getElementById('staplesEdit').onclick = function () {
+  editingStaples = !editingStaples;
+  renderStaples();
+};
 function saveStaple(it) {
   if (staples.some(function (s) { return s.name.toLowerCase() === it.name.toLowerCase(); })) {
     toast('Already a staple');
