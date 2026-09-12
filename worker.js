@@ -1377,7 +1377,7 @@ document.getElementById('clearBtn').onclick = function () {
 // ---- Staples: scrollable menu, tap Add to put a staple on the list ----
 var staples = [];
 function loadStaples() {
-  api('/staples').then(function (data) { staples = data || []; updateStaplesBtn(); })
+  return api('/staples').then(function (data) { staples = data || []; updateStaplesBtn(); })
     .catch(function () { staples = []; updateStaplesBtn(); });
 }
 function updateStaplesBtn() {
@@ -1430,7 +1430,7 @@ function renderStapleSheet() {
     del.onclick = function () {
       if (confirm('Delete staple "' + s.name + '"?')) {
         api('/staples/' + s.id, { method: 'DELETE' })
-          .then(function () { loadStaples(); renderStapleSheet(); })
+          .then(function () { loadStaples().then(renderStapleSheet); })
           .catch(function () { showErr('Could not delete staple'); });
       }
     };
