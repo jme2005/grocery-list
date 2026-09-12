@@ -1376,9 +1376,17 @@ document.getElementById('clearBtn').onclick = function () {
 
 // ---- Staples: scrollable menu, tap Add to put a staple on the list ----
 var staples = [];
+var stapleSheetOpen = false;
 function loadStaples() {
-  return api('/staples').then(function (data) { staples = data || []; updateStaplesBtn(); })
-    .catch(function () { staples = []; updateStaplesBtn(); });
+  return api('/staples').then(function (data) {
+    staples = data || [];
+    updateStaplesBtn();
+    if (stapleSheetOpen) renderStapleSheet();
+  }).catch(function () {
+    staples = [];
+    updateStaplesBtn();
+    if (stapleSheetOpen) renderStapleSheet();
+  });
 }
 function updateStaplesBtn() {
   document.getElementById('staplesOpen').innerHTML =
@@ -1388,10 +1396,12 @@ function isDupName(name) {
   return items.some(function (it) { return !it.checked && it.name.toLowerCase() === name.toLowerCase(); });
 }
 function openStapleSheet() {
+  stapleSheetOpen = true;
   renderStapleSheet();
   document.getElementById('stapleSheet').classList.add('open');
 }
 function closeStapleSheet() {
+  stapleSheetOpen = false;
   document.getElementById('stapleSheet').classList.remove('open');
 }
 function renderStapleSheet() {
@@ -1430,7 +1440,7 @@ function renderStapleSheet() {
     del.onclick = function () {
       if (confirm('Delete staple "' + s.name + '"?')) {
         api('/staples/' + s.id, { method: 'DELETE' })
-          .then(function () { loadStaples().then(renderStapleSheet); })
+          .then(function () { loadStaples(); }) // sheet re-renders from loadStaples while open
           .catch(function () { showErr('Could not delete staple'); });
       }
     };
@@ -1473,7 +1483,7 @@ document.getElementById('stapleNew').onclick = function () {
   if (!name) return;
   api('/staples', { method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ name: name, store: addStore, created_by: who }) })
-    .then(function () { loadStaples(); renderStapleSheet(); })
+    .then(function () { loadStaples(); }) // sheet re-renders from loadStaples while open
     .catch(function () { showErr('Could not add staple'); });
 };
 

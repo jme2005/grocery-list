@@ -104,6 +104,60 @@ const tests = `
   await new Promise(r => setTimeout(r, 20));
   assert(items.length === 1 && items[0].name === 'BBB', 'stale older refresh response ignored');
 
+  // 9. clicking Add POSTs to /add; clicking x sends DELETE (wiring check)
+  staples = [{id:'s9', name:'Yogurt', store:'tjs', qty:'', note:''}];
+  items = [];
+  renderStapleSheet();
+  const r9 = document.getElementById('stapleList').children[0];
+  let hits = [];
+  __fetchImpl = async (url, opts) => { hits.push(opts.method + ' ' + url); return { ok:true, status:200, json: async () => [] }; };
+  __confirmResult = true;
+  await r9.children[1].onclick(); // Add
+  await new Promise(r => setTimeout(r, 20));
+  assert(hits.some(h => h === 'POST api/items/staples/s9/add'), 'Add button POSTs to /staples/:id/add, got: ' + JSON.stringify(hits));
+  hits = [];
+  await r9.children[2].onclick(); // x
+  await new Promise(r => setTimeout(r, 20));
+  assert(hits.some(h => h === 'DELETE api/items/staples/s9'), 'x button DELETEs /staples/:id, got: ' + JSON.stringify(hits));
+  assert(!hits.some(h => h.includes('/add')), 'x button does NOT add');
+
+  // 10. open sheet live-updates on delete and new-staple (no close/reopen needed)
+  let serverStaples = [{id:'a1', name:'Milk', store:'heb', qty:'', note:''}];
+  __fetchImpl = async (url, opts) => {
+    const m = (opts && opts.method) || 'GET';
+    if (url === 'api/items/staples' && m === 'GET') return { ok:true, status:200, json: async () => serverStaples.slice() };
+    if (url === 'api/items/staples' && m === 'POST') {
+      const b = JSON.parse(opts.body);
+      serverStaples.push({id:'n' + serverStaples.length, name:b.name, store:b.store, qty:'', note:''});
+      return { ok:true, status:201, json: async () => ({}) };
+    }
+    if (m === 'DELETE') {
+      const id = url.split('/staples/')[1];
+      serverStaples = serverStaples.filter(s => s.id !== id);
+      return { ok:true, status:200, json: async () => ({}) };
+    }
+    return { ok:true, status:200, json: async () => [] };
+  };
+  const tick = (ms) => new Promise(r => setTimeout(r, ms || 30));
+  staples = [];
+  __confirmResult = true;
+  openStapleSheet();
+  await loadStaples();
+  await tick();
+  let sl = document.getElementById('stapleList');
+  assert(sl.children.length === 1 && sl.children[0].className === 'staplerow', 'sheet shows the staple');
+  await sl.children[0].children[2].onclick(); // x -> delete
+  await tick(); await tick();
+  sl = document.getElementById('stapleList');
+  assert(sl.children.length === 1 && sl.children[0].className === 'sheetSub', 'deleted staple disappears without reopening');
+  await document.getElementById('stapleNew').onclick(); // prompt stub returns 'TestStaple'
+  await tick(); await tick();
+  sl = document.getElementById('stapleList');
+  assert(sl.children.length === 1 && sl.children[0].className === 'staplerow' &&
+    sl.children[0].children[0].children[0].textContent === 'TestStaple',
+    'new staple appears without reopening, got: ' + JSON.stringify(sl.children[0].children[0].children[0].textContent));
+  closeStapleSheet();
+
   console.log('DONE');
   process.exit(process.exitCode || 0);
 })();
