@@ -206,6 +206,47 @@ async function hasPushSentCol(db) {
   }
 }
 
+// migrate9.sql adds items.qty/note/price/photo/claim_until and the staples
+// table. Probe for the columns (cached per isolate once present) so this code
+// works whether or not the migration has run yet.
+let HAS_M9_COLS = null;
+async function hasM9Cols(db) {
+  if (HAS_M9_COLS === true) return true;
+  try {
+    await db.prepare('SELECT qty, note, price, photo, claim_until FROM items LIMIT 0').all();
+    HAS_M9_COLS = true;
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
+
+// Turn a claim "when" ("Monday", "tomorrow", ...) into an ISO datetime at
+// which the claim auto-releases: end of that day. Unparseable input falls
+// back to 24h from now.
+function claimUntil(when, nowIso) {
+  var base = nowIso ? new Date(nowIso) : new Date();
+  if (isNaN(base.getTime())) base = new Date();
+  var w = (when || '').toString().trim().toLowerCase();
+  var days = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+  var idx = -1;
+  for (var i = 0; i < 7; i++) {
+    if (w === days[i] || w === days[i].slice(0, 3)) { idx = i; break; }
+  }
+  var d = new Date(base.getTime());
+  if (w === 'tomorrow') {
+    d.setUTCDate(d.getUTCDate() + 1);
+  } else if (w === 'today' || w === 'tonight') {
+    // d is already today
+  } else if (idx >= 0) {
+    d.setUTCDate(d.getUTCDate() + ((idx - d.getUTCDay() + 7) % 7)); // 0 = today
+  } else {
+    return new Date(base.getTime() + 24 * 3600 * 1000).toISOString();
+  }
+  d.setUTCHours(23, 59, 59, 999);
+  return d.toISOString();
+}
+
 // Record the event, coalescing with a recent same-actor+kind batch and
 // re-arming its push (push_sent_at = NULL). Throws if the events table is
 // missing (the caller falls back to an unbatched body so pushes work
@@ -318,6 +359,16 @@ async function purgeOldPurchased(env) {
       "DELETE FROM items WHERE checked = 1 AND COALESCE(purchased_at, updated_at) < datetime('now', '-24 hours')"
     ).run();
   } catch (e) { /* purge must never break the worker */ }
+}
+
+// Release claims whose promised day has passed. Never throws.
+async function releaseExpiredClaims(env) {
+  try {
+    var now = new Date().toISOString();
+    await env.DB.prepare(
+      "UPDATE items SET claimed_by = NULL, claimed_at = NULL, claim_when = NULL, claim_until = NULL, updated_at = ? WHERE claim_until IS NOT NULL AND claim_until < datetime('now')"
+    ).bind(now).run();
+  } catch (e) { /* expiry must never break the worker */ }
 }
 
 // Fan out one push to every subscribed device except the actor's own.
@@ -1043,10 +1094,16 @@ async function handleApi(request, env, ctx, rest) {
     if (!ids.length) return badRequest('ids required');
     if (['claim', 'unclaim', 'purchase', 'restore', 'delete', 'urgent', 'unurgent'].indexOf(op) < 0) return badRequest('bad op');
     const now = new Date().toISOString();
+    const m9 = await hasM9Cols(db);
+    const claimUntilIso = m9 ? claimUntil(when, now) : null;
     const stmts = ids.map(function (id) {
       switch (op) {
-        case 'claim': return db.prepare('UPDATE items SET claimed_by = ?, claimed_at = ?, claim_when = ?, updated_at = ? WHERE id = ?').bind(by, now, when, now, id);
-        case 'unclaim': return db.prepare('UPDATE items SET claimed_by = NULL, claimed_at = NULL, claim_when = NULL, updated_at = ? WHERE id = ?').bind(now, id);
+        case 'claim': return m9
+          ? db.prepare('UPDATE items SET claimed_by = ?, claimed_at = ?, claim_when = ?, claim_until = ?, updated_at = ? WHERE id = ?').bind(by, now, when, claimUntilIso, now, id)
+          : db.prepare('UPDATE items SET claimed_by = ?, claimed_at = ?, claim_when = ?, updated_at = ? WHERE id = ?').bind(by, now, when, now, id);
+        case 'unclaim': return m9
+          ? db.prepare('UPDATE items SET claimed_by = NULL, claimed_at = NULL, claim_when = NULL, claim_until = NULL, updated_at = ? WHERE id = ?').bind(now, id)
+          : db.prepare('UPDATE items SET claimed_by = NULL, claimed_at = NULL, claim_when = NULL, updated_at = ? WHERE id = ?').bind(now, id);
         case 'purchase': return db.prepare('UPDATE items SET checked = 1, purchased_by = ?, purchased_at = ?, updated_at = ? WHERE id = ?').bind(by, now, now, id);
         case 'restore': return db.prepare('UPDATE items SET checked = 0, purchased_by = NULL, purchased_at = NULL, updated_at = ? WHERE id = ?').bind(now, id);
         case 'delete': return db.prepare('DELETE FROM items WHERE id = ?').bind(id);
@@ -1112,8 +1169,11 @@ async function handleApi(request, env, ctx, rest) {
   // GET /api/items  |  POST /api/items
   if (rest.length === 0) {
     if (method === 'GET') {
+      const cols = (await hasM9Cols(db))
+        ? 'id, name, store, checked, urgent, added_by, claimed_by, claimed_at, claim_when, created_at, updated_at, purchased_by, purchased_at, qty, note, price, photo, claim_until'
+        : 'id, name, store, checked, urgent, added_by, claimed_by, claimed_at, claim_when, created_at, updated_at, purchased_by, purchased_at';
       const rows = await db
-        .prepare('SELECT id, name, store, checked, urgent, added_by, claimed_by, claimed_at, claim_when, created_at, updated_at, purchased_by, purchased_at FROM items ORDER BY checked ASC, urgent DESC, created_at ASC')
+        .prepare('SELECT ' + cols + ' FROM items ORDER BY checked ASC, urgent DESC, created_at ASC')
         .all();
       return json(rows.results || []);
     }
@@ -1127,16 +1187,106 @@ async function handleApi(request, env, ctx, rest) {
       if (!STORES.includes(store)) return badRequest('store must be heb, tjs, or either');
       const now = new Date().toISOString();
       const id = crypto.randomUUID();
-      await db
-        .prepare('INSERT INTO items (id, name, store, checked, added_by, created_at, updated_at) VALUES (?, ?, ?, 0, ?, ?, ?)')
-        .bind(id, name, store, addedBy, now, now)
-        .run();
+      const m9 = await hasM9Cols(db);
+      const qty = m9 ? ((body.qty || '').toString().trim().slice(0, 20) || null) : null;
+      const note = m9 ? ((body.note || '').toString().trim().slice(0, 200) || null) : null;
+      let price = null;
+      if (m9 && body.price !== undefined && body.price !== null && body.price !== '') {
+        price = Number(body.price);
+        if (!(price >= 0) || !isFinite(price)) return badRequest('price must be a non-negative number');
+      }
+      if (m9) {
+        await db
+          .prepare('INSERT INTO items (id, name, store, checked, added_by, created_at, updated_at, qty, note, price) VALUES (?, ?, ?, 0, ?, ?, ?, ?, ?, ?)')
+          .bind(id, name, store, addedBy, now, now, qty, note, price)
+          .run();
+      } else {
+        await db
+          .prepare('INSERT INTO items (id, name, store, checked, added_by, created_at, updated_at) VALUES (?, ?, ?, 0, ?, ?, ?)')
+          .bind(id, name, store, addedBy, now, now)
+          .run();
+      }
       if (addedBy) {
         ctx.waitUntil(recordActivity(env, addedBy, 'add', name, { store: store }));
       }
-      return json({ id, name, store, checked: 0, added_by: addedBy, created_at: now, updated_at: now }, 201);
+      return json({ id, name, store, checked: 0, added_by: addedBy, created_at: now, updated_at: now, qty, note, price }, 201);
     }
     return json({ error: 'Method not allowed' }, 405);
+  }
+
+  // GET /api/items/staples  |  POST /api/items/staples
+  // Table created by migrate9.sql; returns [] if the migration hasn't run yet.
+  if (rest.length === 1 && rest[0] === 'staples') {
+    try {
+      if (method === 'GET') {
+        const rows = await db.prepare(
+          'SELECT id, name, store, qty, note, created_by, created_at FROM staples ORDER BY created_at'
+        ).all();
+        return json(rows.results || []);
+      }
+      if (method === 'POST') {
+        let body;
+        try { body = await request.json(); } catch { return badRequest('Invalid JSON'); }
+        const name = (body.name || '').toString().trim();
+        const store = (body.store || 'either').toString();
+        const createdBy = (body.created_by || '').toString().trim().slice(0, 60) || null;
+        if (!name) return badRequest('name is required');
+        if (!STORES.includes(store)) return badRequest('store must be heb, tjs, or either');
+        const qty = (body.qty || '').toString().trim().slice(0, 20) || null;
+        const note = (body.note || '').toString().trim().slice(0, 200) || null;
+        const now = new Date().toISOString();
+        const id = crypto.randomUUID();
+        await db.prepare(
+          'INSERT INTO staples (id, name, store, qty, note, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
+        ).bind(id, name, store, qty, note, createdBy, now).run();
+        return json({ id, name, store, qty, note, created_by: createdBy, created_at: now }, 201);
+      }
+      return json({ error: 'Method not allowed' }, 405);
+    } catch (e) {
+      if (method === 'GET') return json([]);
+      throw e;
+    }
+  }
+
+  // DELETE /api/items/staples/:id
+  if (rest.length === 2 && rest[0] === 'staples') {
+    const stapleId = rest[1];
+    if (method === 'DELETE') {
+      try {
+        const res = await db.prepare('DELETE FROM staples WHERE id = ?').bind(stapleId).run();
+        if (res.meta.changes === 0) return json({ error: 'Not found' }, 404);
+        return json({ ok: true });
+      } catch (e) {
+        return json({ error: 'Not found' }, 404);
+      }
+    }
+    return json({ error: 'Not found' }, 404);
+  }
+  if (rest.length === 3 && rest[0] === 'staples' && rest[2] === 'add') {
+    if (method !== 'POST') return json({ error: 'Method not allowed' }, 405);
+    let body = {};
+    try { body = await request.json(); } catch { /* by is optional */ }
+    const by = (body.by || '').toString().trim().slice(0, 60) || null;
+    try {
+      const s = await db.prepare('SELECT name, store, qty, note FROM staples WHERE id = ?').bind(rest[1]).first();
+      if (!s) return json({ error: 'Not found' }, 404);
+      const now = new Date().toISOString();
+      const id = crypto.randomUUID();
+      const m9 = await hasM9Cols(db);
+      if (m9) {
+        await db.prepare(
+          'INSERT INTO items (id, name, store, checked, added_by, created_at, updated_at, qty, note) VALUES (?, ?, ?, 0, ?, ?, ?, ?, ?)'
+        ).bind(id, s.name, s.store, by, now, now, s.qty, s.note).run();
+      } else {
+        await db.prepare(
+          'INSERT INTO items (id, name, store, checked, added_by, created_at, updated_at) VALUES (?, ?, ?, 0, ?, ?, ?)'
+        ).bind(id, s.name, s.store, by, now, now).run();
+      }
+      if (by) ctx.waitUntil(recordActivity(env, by, 'add', s.name, { store: s.store }));
+      return json({ id, name: s.name, store: s.store }, 201);
+    } catch (e) {
+      return json({ error: 'Not found' }, 404);
+    }
   }
 
   // PATCH /api/items/:id  |  DELETE /api/items/:id
@@ -1160,17 +1310,38 @@ async function handleApi(request, env, ctx, rest) {
       if (body.urgent !== undefined) {
         sets.push('urgent = ?'); binds.push(body.urgent ? 1 : 0);
       }
+      const m9 = await hasM9Cols(db);
+      if (m9 && body.qty !== undefined) {
+        sets.push('qty = ?'); binds.push(body.qty === null ? null : body.qty.toString().trim().slice(0, 20) || null);
+      }
+      if (m9 && body.note !== undefined) {
+        sets.push('note = ?'); binds.push(body.note === null ? null : body.note.toString().trim().slice(0, 200) || null);
+      }
+      if (m9 && body.price !== undefined) {
+        let price = null;
+        if (body.price !== null && body.price !== '') {
+          price = Number(body.price);
+          if (!(price >= 0) || !isFinite(price)) return badRequest('price must be a non-negative number');
+        }
+        sets.push('price = ?'); binds.push(price);
+      }
+      if (m9 && body.photo !== undefined) {
+        sets.push('photo = ?'); binds.push(body.photo === null ? null : body.photo.toString().slice(0, 200000) || null);
+      }
       if (body.claimed !== undefined) {
         if (body.claimed) {
           const claimedBy = (body.claimed_by || '').toString().trim().slice(0, 60) || null;
           const claimWhen = (body.claim_when || '').toString().trim().slice(0, 60) || null;
+          const nowIso = new Date().toISOString();
           sets.push('claimed_by = ?'); binds.push(claimedBy);
-          sets.push('claimed_at = ?'); binds.push(new Date().toISOString());
+          sets.push('claimed_at = ?'); binds.push(nowIso);
           sets.push('claim_when = ?'); binds.push(claimWhen);
+          if (m9) { sets.push('claim_until = ?'); binds.push(claimUntil(claimWhen, nowIso)); }
         } else {
           sets.push('claimed_by = NULL');
           sets.push('claimed_at = NULL');
           sets.push('claim_when = NULL');
+          if (m9) sets.push('claim_until = NULL');
         }
       }
       if (body.checked !== undefined) {
@@ -1251,10 +1422,11 @@ export default {
   },
 
   // Cron trigger (see [triggers] in wrangler.toml): flush pending notification
-  // batches — one push per batch after the actor goes quiet — and purge
-  // items purchased more than 24 hours ago.
+  // batches — one push per batch after the actor goes quiet — purge items
+  // purchased more than 24 hours ago, and release expired claims.
   async scheduled(event, env, ctx) {
     ctx.waitUntil(flushDuePushes(env));
     ctx.waitUntil(purgeOldPurchased(env));
+    ctx.waitUntil(releaseExpiredClaims(env));
   },
 };
