@@ -1416,7 +1416,7 @@ function initSheetDrag(grabId, closeFn) {
   var card = grab.parentNode;
   var drag = null;
   function yOf(e) { return e.touches ? e.touches[0].clientY : e.clientY; }
-  function start(e) { drag = { y: yOf(e), dy: 0 }; card.style.transition = 'none'; }
+  function start(e) { drag = { y: yOf(e), t: Date.now(), dy: 0 }; card.style.transition = 'none'; }
   function move(e) {
     if (!drag) return;
     drag.dy = yOf(e) - drag.y;
@@ -1425,10 +1425,11 @@ function initSheetDrag(grabId, closeFn) {
   }
   function end() {
     if (!drag) return;
-    var dy = drag.dy; drag = null;
+    var dy = drag.dy, dt = Date.now() - drag.t; drag = null;
     card.style.transition = '';
     card.style.transform = '';
-    if (dy > 90) closeFn();
+    var v = dt > 0 ? dy / dt : 0; // px per ms: fast downward flick
+    if (dy > 140 || (dy > 40 && v > 0.5)) closeFn();
   }
   grab.addEventListener('touchstart', start, { passive: true });
   grab.addEventListener('touchmove', move, { passive: false });

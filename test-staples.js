@@ -166,18 +166,30 @@ const tests = `
   __els['stapleGrab'] = dgrab;
   initSheetDrag('stapleGrab', closeStapleSheet);
   stapleSheetOpen = true;
+  const __realNow = Date.now;
+  let __now = 1000;
+  Date.now = function(){ return __now; };
   dgrab.fire('touchstart', { touches:[{clientY:200}] });
-  dgrab.fire('touchmove', { touches:[{clientY:340}], cancelable:true, preventDefault(){} });
-  assert(dcard.style.transform === 'translateY(140px)', 'sheet follows finger, got: ' + dcard.style.transform);
+  dgrab.fire('touchmove', { touches:[{clientY:420}], cancelable:true, preventDefault(){} });
+  assert(dcard.style.transform === 'translateY(220px)', 'sheet follows finger, got: ' + dcard.style.transform);
+  __now += 400; // slow deliberate pull
   dgrab.fire('touchend', {});
   assert(stapleSheetOpen === false, 'long pull dismisses the sheet');
   assert(dcard.style.transform === '', 'transform reset after dismiss');
   stapleSheetOpen = true;
   dgrab.fire('touchstart', { touches:[{clientY:200}] });
   dgrab.fire('touchmove', { touches:[{clientY:230}], cancelable:true, preventDefault(){} });
+  __now += 400; // slow nudge: too short and too slow
   dgrab.fire('touchend', {});
   assert(dcard.style.transform === '', 'short pull snaps back');
-  assert(stapleSheetOpen === true, 'short pull keeps sheet open');
+  assert(stapleSheetOpen === true, 'short slow nudge keeps sheet open');
+  stapleSheetOpen = true;
+  dgrab.fire('touchstart', { touches:[{clientY:200}] });
+  dgrab.fire('touchmove', { touches:[{clientY:260}], cancelable:true, preventDefault(){} });
+  __now += 50; // fast flick down: short distance but high velocity
+  dgrab.fire('touchend', {});
+  assert(stapleSheetOpen === false, 'fast flick down dismisses');
+  Date.now = __realNow;
 
   console.log('DONE');
   process.exit(process.exitCode || 0);
