@@ -176,7 +176,10 @@ function ageBatch(db, actor, kind, ms = 60000) {
   if (e) e.updated_at = agoIso(ms);
 }
 function addItem(db, id, name, by) {
-  db._items.push({ id, name, added_by: by, created_at: nowIso(), checked: 0 });
+  // Production stamps the item a few ms BEFORE the batch row (the item insert
+  // is awaited before recordActivity runs). Simulate that skew: without it the
+  // test passes by same-millisecond luck and misses the reconcile bug.
+  db._items.push({ id, name, added_by: by, created_at: new Date(Date.now() - 50).toISOString(), checked: 0 });
 }
 function delItem(db, id) {
   db._items = db._items.filter(i => i.id !== id);
@@ -251,7 +254,7 @@ async function testPurchaseReconcile() {
   const { db, env } = freshEnv();
   for (let n = 1; n <= 3; n++) {
     db._items.push({ id: 'p' + n, name: 'P' + n, purchased_by: 'Krista',
-      purchased_at: new Date(Date.now() + n).toISOString(), checked: 1 });
+      purchased_at: new Date(Date.now() - 50 + n).toISOString(), checked: 1 });
     await api.recordActivity(env, 'Krista', 'purchase', 'P' + n, {});
   }
   db._items.find(i => i.id === 'p3').checked = 0; // un-buy one before the flush

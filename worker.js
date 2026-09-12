@@ -246,13 +246,20 @@ async function upsertEvent(env, actor, kind, label, extra) {
 // the flush don't inflate the count. Returns { count, names }, or null when
 // reconciliation isn't possible (flush with the stored body instead).
 async function reconcileBatch(db, batch) {
+  // The batch row is timestamped a few ms AFTER its items (same request, the
+  // item insert is awaited first), so compare against a slightly earlier
+  // bound — otherwise the batch's own items look older than the batch and
+  // every batch reconciles to zero. The margin is safe: a same-actor item
+  // from seconds before an open batch necessarily belongs to that batch
+  // (anything older would have been flushed after 45s of quiet).
+  const since = new Date(new Date(batch.created_at).getTime() - 10000).toISOString();
   let stmt;
   if (batch.kind === 'add') {
-    stmt = db.prepare('SELECT name FROM items WHERE added_by = ? AND created_at >= ? ORDER BY created_at').bind(batch.actor, batch.created_at);
+    stmt = db.prepare('SELECT name FROM items WHERE added_by = ? AND created_at >= ? ORDER BY created_at').bind(batch.actor, since);
   } else if (batch.kind === 'purchase') {
-    stmt = db.prepare('SELECT name FROM items WHERE purchased_by = ? AND checked = 1 AND purchased_at >= ? ORDER BY purchased_at').bind(batch.actor, batch.created_at);
+    stmt = db.prepare('SELECT name FROM items WHERE purchased_by = ? AND checked = 1 AND purchased_at >= ? ORDER BY purchased_at').bind(batch.actor, since);
   } else if (batch.kind === 'claim') {
-    stmt = db.prepare('SELECT name FROM items WHERE claimed_by = ? AND claimed_at >= ? ORDER BY claimed_at').bind(batch.actor, batch.created_at);
+    stmt = db.prepare('SELECT name FROM items WHERE claimed_by = ? AND claimed_at >= ? ORDER BY claimed_at').bind(batch.actor, since);
   } else {
     return null;
   }
