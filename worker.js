@@ -482,6 +482,38 @@ const PAGE = `<!DOCTYPE html>
   .actions { flex: 1 1 100%; display: flex; align-items: center; gap: 8px; margin-top: 4px; }
   .actions .spacer { flex: 1; }
   .abtn { border: 1.5px solid #d5dad2; background: #f7f9f5; border-radius: 12px; font-size: 14px; font-weight: 700; color: #4a5148; padding: 9px 14px; cursor: pointer; transition: transform .12s ease; }
+  /* Quantities, staples, details, in-store mode, offline */
+  #itemQty { width: 64px; flex: none; font-size: 17px; padding: 14px 10px; border: 1.5px solid #d5dad2; border-radius: 16px; background: #f7f9f5; outline: none; text-align: center; }
+  #itemQty:focus { border-color: #1d9a55; background: #fff; }
+  #recipeBtn { flex: none; font-size: 18px; padding: 12px 14px; border: 1.5px solid #d5dad2; border-radius: 16px; background: #f7f9f5; cursor: pointer; }
+  .qwrap { display: inline-flex; align-items: center; gap: 6px; margin-left: 10px; vertical-align: middle; }
+  .qbtn { width: 30px; height: 30px; border-radius: 50%; border: 1.5px solid #d5dad2; background: #f7f9f5; font-size: 17px; font-weight: 800; color: #0e6b3a; cursor: pointer; line-height: 1; }
+  .qbadge { font-size: 14px; font-weight: 800; color: #0e6b3a; background: #e9f5ee; border-radius: 999px; padding: 4px 10px; white-space: nowrap; }
+  button.qbadge.textq { border: 1.5px dashed #b9c4b6; background: none; color: #8a938a; cursor: pointer; }
+  .noteline { color: #6b6250; font-style: italic; cursor: pointer; }
+  .priceline { color: #0e6b3a; font-weight: 700; cursor: pointer; }
+  .thumb { width: 44px; height: 44px; object-fit: cover; border-radius: 10px; margin-top: 6px; cursor: pointer; }
+  .triptotal { font-weight: 700; color: #0e6b3a; }
+  .staples { display: flex; align-items: center; gap: 8px; margin-top: 10px; overflow-x: auto; padding-bottom: 2px; }
+  .stapleslabel { font-size: 12px; font-weight: 800; color: #8a938a; text-transform: uppercase; letter-spacing: .04em; flex: none; }
+  #stapleChips { display: flex; gap: 8px; }
+  .staplechip { flex: none; border: 1.5px solid #cfe3d6; background: #eef7f1; color: #0e6b3a; font-size: 14px; font-weight: 700; border-radius: 999px; padding: 8px 14px; cursor: pointer; }
+  .staplechip.add { background: none; border-style: dashed; color: #8a938a; }
+  .dlabel { display: block; font-size: 14px; font-weight: 700; color: #4a5148; margin: 12px 0; }
+  .dlabel input { display: block; width: 100%; box-sizing: border-box; margin-top: 6px; font-size: 16px; padding: 12px; border: 1.5px solid #d5dad2; border-radius: 12px; outline: none; }
+  .dlabel input:focus { border-color: #1d9a55; }
+  .dpreview { width: 100%; max-height: 220px; object-fit: contain; border-radius: 12px; margin: 4px 0 8px; }
+  #recipeText { width: 100%; box-sizing: border-box; font-size: 16px; padding: 12px; border: 1.5px solid #d5dad2; border-radius: 12px; outline: none; resize: vertical; }
+  #recipeText:focus { border-color: #1d9a55; }
+  .netbadge { border: none; background: #b7791f; color: #fff; font-size: 12px; font-weight: 800; border-radius: 999px; padding: 7px 11px; cursor: pointer; }
+  #storeBtn.on { background: #0e6b3a; color: #fff; border-color: #0e6b3a; }
+  body.instore { font-size: 19px; }
+  body.instore li { padding: 20px 14px; }
+  body.instore li .name { font-size: 23px; }
+  body.instore .check { width: 62px; height: 62px; font-size: 30px; }
+  body.instore .meta, body.instore .actions, body.instore .thumb { display: none; }
+  body.instore .qbtn { width: 44px; height: 44px; font-size: 22px; }
+  body.instore .qbadge { font-size: 18px; padding: 8px 14px; }
   .abtn:active { transform: scale(.95); }
   .urgentbtn.on { background: #ffe6e6; border-color: #e05240; color: #c74343; }
   .claimbtn.claimed { background: #e9f5ee; border-color: #1d9a55; color: #0e6b3a; }
@@ -540,6 +572,8 @@ const PAGE = `<!DOCTYPE html>
   <div class="headrow">
     <div><h1>🧺 Grocery List</h1><div class="sub" id="buyCount"></div></div>
     <span class="headbtns">
+      <button id="netBadge" class="netbadge" style="display:none" title="queued changes"></button>
+      <button id="storeBtn" aria-label="in-store mode" title="in-store mode">&#x1F3EC;</button>
       <button id="bellBtn" aria-label="notifications" title="notifications">&#128276;<span class="dot"></span></button>
       <button id="whoBtn" aria-label="change name"></button>
     </span>
@@ -552,7 +586,7 @@ const PAGE = `<!DOCTYPE html>
   </div>
 </header>
 <div id="actBanner"></div>
-<div class="section"><span>To buy</span><button id="selectBtn">Select</button></div>
+<div class="section"><span>To buy<span id="tripTotal" class="triptotal"></span></span><button id="selectBtn">Select</button></div>
 <ul id="list"></ul>
 <div class="empty" id="empty" style="display:none">🛒 Nothing to buy yet.<br>Add something below.</div>
 <div class="section" id="purchHead" style="display:none">Purchased</div>
@@ -567,7 +601,14 @@ const PAGE = `<!DOCTYPE html>
   </div>
   <div class="addrow">
     <input id="itemName" type="text" placeholder="Add an item&hellip;" autocomplete="off" enterkeyhint="done">
+    <input id="itemQty" type="text" placeholder="Qty" autocomplete="off" enterkeyhint="done">
     <button id="addBtn">Add</button>
+    <button id="recipeBtn" title="import recipe">&#x1F4CB;</button>
+  </div>
+  <div class="staples" id="staplesRow">
+    <span class="stapleslabel">Staples</span>
+    <span id="stapleChips"></span>
+    <button id="stapleAdd" class="staplechip add" title="add a staple">&#65291;</button>
   </div>
   <button id="clearBtn">Clear purchased</button>
   <div class="ver" id="ver">v6 autopurge</div>
@@ -592,6 +633,27 @@ const PAGE = `<!DOCTYPE html>
     </button>
     <div class=\"sheetSub\">Activity</div>
     <div id=\"sheetAct\"></div>
+  </div>
+</div>
+<div id="detailSheet" class="sheet" role="dialog" aria-label="Item details">
+  <div class="sheetCard">
+    <div class="sheetHead"><span class="atitle" id="detailTitle">Item details</span><button class="ax" id="detailX" aria-label="close">&times;</button></div>
+    <label class="dlabel">Note<input id="detailNote" type="text" maxlength="200" placeholder="e.g. organic only"></label>
+    <label class="dlabel">Price estimate ($)<input id="detailPrice" type="number" min="0" step="0.01" inputmode="decimal" placeholder="0.00"></label>
+    <label class="dlabel">Photo<input id="detailPhoto" type="file" accept="image/*"></label>
+    <img id="detailPreview" class="dpreview" alt="" style="display:none">
+    <div class="abtns">
+      <button id="detailSave" class="abtn">Save</button>
+      <button id="detailClearPhoto" class="abtn">Remove photo</button>
+    </div>
+  </div>
+</div>
+<div id="recipeSheet" class="sheet" role="dialog" aria-label="Import recipe">
+  <div class="sheetCard">
+    <div class="sheetHead"><span class="atitle">Import recipe</span><button class="ax" id="recipeX" aria-label="close">&times;</button></div>
+    <div class="sheetSub">Paste ingredients, one per line</div>
+    <textarea id="recipeText" rows="8" placeholder="2 cups flour&#10;3 eggs&#10;1 gal milk"></textarea>
+    <div class="abtns"><button id="recipeAdd" class="abtn">Add items</button></div>
   </div>
 </div>
 <script>
@@ -796,15 +858,77 @@ if ('serviceWorker' in navigator && navigator.serviceWorker.addEventListener) {
 }
 
 function api(path, opts) {
+  opts = opts || {};
+  var method = (opts.method || 'GET').toUpperCase();
+  if (method === 'GET') {
+    return fetch('api/items' + path, opts).then(function (r) {
+      if (!r.ok) throw new Error('Request failed');
+      return r.json();
+    });
+  }
+  // Mutations made offline are queued and replayed on reconnect.
+  if (!navigator.onLine) {
+    enqueueApi({ path: path, opts: opts });
+    return Promise.resolve({ ok: true, queued: true });
+  }
   return fetch('api/items' + path, opts).then(function (r) {
     if (!r.ok) throw new Error('Request failed');
     return r.json();
+  }).catch(function (err) {
+    enqueueApi({ path: path, opts: opts });
+    return { ok: true, queued: true };
   });
 }
+var apiQueue = [];
+try { apiQueue = JSON.parse(localStorage.getItem('apiQueue') || '[]'); } catch (e) { apiQueue = []; }
+function saveQueue() { try { localStorage.setItem('apiQueue', JSON.stringify(apiQueue)); } catch (e) {} }
+function enqueueApi(req) {
+  apiQueue.push(req);
+  saveQueue();
+  updateNetBadge();
+  toast('Offline — change queued');
+}
+function updateNetBadge() {
+  var b = document.getElementById('netBadge');
+  if (!b) return;
+  if (!navigator.onLine) {
+    b.style.display = '';
+    b.textContent = 'offline' + (apiQueue.length ? ' · ' + apiQueue.length + ' queued' : '');
+  } else if (apiQueue.length) {
+    b.style.display = '';
+    b.textContent = apiQueue.length + ' queued — tap to sync';
+  } else {
+    b.style.display = 'none';
+  }
+}
+function flushQueue() {
+  if (!navigator.onLine || !apiQueue.length) { updateNetBadge(); return; }
+  var q = apiQueue.slice();
+  var chain = Promise.resolve();
+  q.forEach(function (req) {
+    chain = chain.then(function () { return fetch('api/items' + req.path, req.opts).catch(function () {}); });
+  });
+  chain.then(function () {
+    apiQueue = apiQueue.slice(q.length);
+    saveQueue();
+    updateNetBadge();
+    refresh();
+    loadStaples();
+  });
+}
+window.addEventListener('online', function () { updateNetBadge(); flushQueue(); });
+window.addEventListener('offline', updateNetBadge);
 function showErr(msg) {
   errEl.textContent = msg;
   errEl.style.display = 'block';
+  errEl.style.background = '';
   setTimeout(function () { errEl.style.display = 'none'; }, 3000);
+}
+function toast(msg) {
+  errEl.textContent = msg;
+  errEl.style.display = 'block';
+  errEl.style.background = '#1d7a44';
+  setTimeout(function () { errEl.style.display = 'none'; errEl.style.background = ''; }, 2500);
 }
 function storeLabel(s) { return s === 'heb' ? 'H-E-B' : (s === 'tjs' ? "Trader Joe's" : (s === 'costco' ? 'Costco' : 'Either')); }
 function fmtDate(iso) {
@@ -850,7 +974,31 @@ function makeRow(it, purchased) {
   var meta = document.createElement('div');
   meta.className = 'meta';
   meta.textContent = purchased ? purchMeta(it) : addedMeta(it);
-  mid.appendChild(name); mid.appendChild(meta);
+  mid.appendChild(name);
+  mid.appendChild(qtyControl(it, purchased));
+  mid.appendChild(meta);
+  if (!purchased && it.note) {
+    var nt = document.createElement('div');
+    nt.className = 'meta noteline';
+    nt.textContent = '\uD83D\uDCDD ' + it.note;
+    nt.onclick = function (e) { e.stopPropagation(); openDetail(it); };
+    mid.appendChild(nt);
+  }
+  if (!purchased && it.price !== null && it.price !== undefined && it.price !== '') {
+    var pr = document.createElement('div');
+    pr.className = 'meta priceline';
+    pr.textContent = '$' + Number(it.price).toFixed(2) + ' est.';
+    pr.onclick = function (e) { e.stopPropagation(); openDetail(it); };
+    mid.appendChild(pr);
+  }
+  if (it.photo) {
+    var th = document.createElement('img');
+    th.className = 'thumb';
+    th.src = it.photo;
+    th.alt = '';
+    th.onclick = function (e) { e.stopPropagation(); window.open(it.photo, '_blank'); };
+    mid.appendChild(th);
+  }
   if (!purchased && it.claimed_by) {
     var cl = document.createElement('div');
     cl.className = 'meta claimedline';
@@ -893,6 +1041,20 @@ function makeRow(it, purchased) {
     claim.title = it.claimed_by ? it.claimed_by + ' will get this' + (it.claim_when ? ' \\u00B7 ' + it.claim_when : '') : 'Claim this item';
     claim.onclick = function (e) { e.stopPropagation(); claimItem(it); };
     actions.appendChild(claim);
+    var det = document.createElement('button');
+    det.className = 'abtn';
+    det.textContent = '\u270F\uFE0F';
+    det.title = 'Note, price, photo';
+    det.setAttribute('aria-label', 'edit details');
+    det.onclick = function (e) { e.stopPropagation(); openDetail(it); };
+    actions.appendChild(det);
+    var st = document.createElement('button');
+    st.className = 'abtn';
+    st.textContent = '\uD83D\uDCCC';
+    st.title = 'Save as staple';
+    st.setAttribute('aria-label', 'save as staple');
+    st.onclick = function (e) { e.stopPropagation(); saveStaple(it); };
+    actions.appendChild(st);
     li.appendChild(actions);
   } else {
     var ptag = document.createElement('span');
@@ -902,6 +1064,114 @@ function makeRow(it, purchased) {
   }
   return li;
 }
+
+function setQty(it, v) {
+  var s = (v === null || v === undefined) ? null : String(v).trim().slice(0, 20) || null;
+  api('/' + it.id, { method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ qty: s }) })
+    .then(refresh).catch(function () { showErr('Could not update quantity'); });
+}
+function askQty(it) {
+  var v = prompt('Quantity for "' + it.name + '"', it.qty || '');
+  if (v === null) return;
+  setQty(it, v);
+}
+function qtyControl(it, purchased) {
+  var wrap = document.createElement('span');
+  wrap.className = 'qwrap';
+  var q = (it.qty || '').toString().trim();
+  if (q && /^[0-9]+(\.[0-9]+)?$/.test(q) && !purchased) {
+    var minus = document.createElement('button');
+    minus.className = 'qbtn'; minus.textContent = '\u2212';
+    minus.setAttribute('aria-label', 'decrease quantity');
+    minus.onclick = function (e) { e.stopPropagation(); setQty(it, Math.max(1, parseFloat(q) - 1)); };
+    var qd = document.createElement('span');
+    qd.className = 'qbadge'; qd.textContent = '\u00D7' + q;
+    var plus = document.createElement('button');
+    plus.className = 'qbtn'; plus.textContent = '+';
+    plus.setAttribute('aria-label', 'increase quantity');
+    plus.onclick = function (e) { e.stopPropagation(); setQty(it, parseFloat(q) + 1); };
+    wrap.appendChild(minus); wrap.appendChild(qd); wrap.appendChild(plus);
+  } else {
+    var qb = document.createElement(purchased ? 'span' : 'button');
+    qb.className = 'qbadge' + (q ? '' : ' textq');
+    qb.textContent = q ? (purchased ? '\u00D7' + q : q) : '+ qty';
+    if (!purchased) qb.onclick = function (e) { e.stopPropagation(); askQty(it); };
+    wrap.appendChild(qb);
+  }
+  return wrap;
+}
+
+// ---- Item details sheet: note, price estimate, photo ----
+var detailItem = null;
+var detailPhotoData = null;
+function fileToDataUrl(file, cb) {
+  var img = new Image();
+  var url = URL.createObjectURL(file);
+  img.onload = function () {
+    try {
+      var max = 800, w = img.width, h = img.height;
+      var scale = Math.min(1, max / Math.max(w, h));
+      var c = document.createElement('canvas');
+      c.width = Math.max(1, Math.round(w * scale));
+      c.height = Math.max(1, Math.round(h * scale));
+      c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+      URL.revokeObjectURL(url);
+      cb(c.toDataURL('image/jpeg', 0.7));
+    } catch (e) { URL.revokeObjectURL(url); cb(null); }
+  };
+  img.onerror = function () { URL.revokeObjectURL(url); cb(null); };
+  img.src = url;
+}
+function openDetail(it) {
+  detailItem = it;
+  detailPhotoData = null;
+  document.getElementById('detailTitle').textContent = it.name;
+  document.getElementById('detailNote').value = it.note || '';
+  document.getElementById('detailPrice').value = (it.price === null || it.price === undefined || it.price === '') ? '' : it.price;
+  var prev = document.getElementById('detailPreview');
+  prev.src = it.photo || '';
+  prev.style.display = it.photo ? 'block' : 'none';
+  document.getElementById('detailPhoto').value = '';
+  document.getElementById('detailSheet').classList.add('open');
+}
+function closeDetail() {
+  document.getElementById('detailSheet').classList.remove('open');
+  detailItem = null;
+  detailPhotoData = null;
+}
+document.getElementById('detailX').onclick = closeDetail;
+document.getElementById('detailSheet').addEventListener('click', function (e) { if (e.target === this) closeDetail(); });
+document.getElementById('detailPhoto').addEventListener('change', function (e) {
+  var f = e.target.files && e.target.files[0];
+  if (!f) return;
+  fileToDataUrl(f, function (dataUrl) {
+    if (!dataUrl) { showErr('Could not read photo'); return; }
+    detailPhotoData = dataUrl;
+    var prev = document.getElementById('detailPreview');
+    prev.src = dataUrl;
+    prev.style.display = 'block';
+  });
+});
+document.getElementById('detailSave').onclick = function () {
+  if (!detailItem) return;
+  var body = {
+    note: document.getElementById('detailNote').value,
+    price: document.getElementById('detailPrice').value
+  };
+  if (detailPhotoData) body.photo = detailPhotoData;
+  api('/' + detailItem.id, { method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body) })
+    .then(function () { closeDetail(); refresh(); })
+    .catch(function () { showErr('Could not save details'); });
+};
+document.getElementById('detailClearPhoto').onclick = function () {
+  if (!detailItem) return;
+  api('/' + detailItem.id, { method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ photo: null }) })
+    .then(function () { closeDetail(); refresh(); })
+    .catch(function () { showErr('Could not remove photo'); });
+};
 
 function claimItem(it) {
   if (it.claimed_by) {
@@ -1020,11 +1290,15 @@ function remove(it) {
 }
 function addItem() {
   var input = document.getElementById('itemName');
+  var qtyInput = document.getElementById('itemQty');
   var name = input.value.trim();
   if (!name) return;
+  var dup = items.some(function (it) { return !it.checked && it.name.toLowerCase() === name.toLowerCase(); });
+  if (dup && !confirm('"' + name + '" is already on the list. Add anyway?')) return;
+  var qty = qtyInput ? qtyInput.value.trim().slice(0, 20) : '';
   api('', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ name: name, store: addStore, added_by: who }) })
-    .then(function () { input.value = ''; refresh(); })
+    body: JSON.stringify({ name: name, store: addStore, added_by: who, qty: qty || undefined }) })
+    .then(function () { input.value = ''; if (qtyInput) qtyInput.value = ''; refresh(); })
     .catch(function () { showErr('Could not add item'); });
 }
 
@@ -1054,7 +1328,103 @@ document.getElementById('clearBtn').onclick = function () {
     .catch(function () { showErr('Could not clear purchased'); });
 };
 
+// ---- Staples: one-tap re-add of weekly regulars ----
+var staples = [];
+function loadStaples() {
+  api('/staples').then(function (data) { staples = data || []; renderStaples(); })
+    .catch(function () { staples = []; renderStaples(); });
+}
+function renderStaples() {
+  var wrap = document.getElementById('stapleChips');
+  wrap.innerHTML = '';
+  staples.forEach(function (s) {
+    var c = document.createElement('button');
+    c.className = 'staplechip';
+    c.textContent = ((s.qty || '').trim() ? s.qty.trim() + ' ' : '') + s.name;
+    c.title = 'Tap to add · long-press to delete';
+    c.onclick = function () {
+      api('/staples/' + s.id + '/add', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ by: who }) })
+        .then(refresh).catch(function () { showErr('Could not add staple'); });
+    };
+    c.oncontextmenu = function (e) {
+      e.preventDefault();
+      if (confirm('Delete staple "' + s.name + '"?')) {
+        api('/staples/' + s.id, { method: 'DELETE' })
+          .then(loadStaples).catch(function () { showErr('Could not delete staple'); });
+      }
+    };
+    wrap.appendChild(c);
+  });
+}
+function saveStaple(it) {
+  if (staples.some(function (s) { return s.name.toLowerCase() === it.name.toLowerCase(); })) {
+    toast('Already a staple');
+    return;
+  }
+  api('/staples', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: it.name, store: it.store, qty: it.qty, note: it.note, created_by: who }) })
+    .then(function () { loadStaples(); toast('Saved as staple'); })
+    .catch(function () { showErr('Could not save staple'); });
+}
+document.getElementById('stapleAdd').onclick = function () {
+  var name = prompt('Staple name:');
+  if (name === null) return;
+  name = name.trim().slice(0, 60);
+  if (!name) return;
+  api('/staples', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: name, store: addStore, created_by: who }) })
+    .then(loadStaples).catch(function () { showErr('Could not add staple'); });
+};
+
+// ---- Recipe import: paste ingredients, one per line ----
+function openRecipe() {
+  document.getElementById('recipeText').value = '';
+  document.getElementById('recipeSheet').classList.add('open');
+}
+function closeRecipe() { document.getElementById('recipeSheet').classList.remove('open'); }
+document.getElementById('recipeBtn').onclick = openRecipe;
+document.getElementById('recipeX').onclick = closeRecipe;
+document.getElementById('recipeSheet').addEventListener('click', function (e) { if (e.target === this) closeRecipe(); });
+document.getElementById('recipeAdd').onclick = function () {
+  var parsed = [];
+  document.getElementById('recipeText').value.split('\\n').forEach(function (line) {
+    var l = line.trim().replace(/^([\\s\\-\\*\u2022]+|\\d+[\\.\\)\\]]\\s+|\\d+[\\.\\)\\]]$)/, '').trim();
+    if (!l) return;
+    var m = l.match(/^(\\d+(?:\\.\\d+)?(?:\\/\\d+)?)\\s*([a-zA-Z]*)\\s+(.+)$/);
+    var qty = '', pname = l;
+    if (m) { qty = (m[1] + (m[2] ? ' ' + m[2] : '')).slice(0, 20); pname = m[3]; }
+    parsed.push({ name: pname.slice(0, 60), qty: qty });
+  });
+  parsed = parsed.slice(0, 50);
+  if (!parsed.length) return;
+  closeRecipe();
+  var chain = Promise.resolve();
+  parsed.forEach(function (p) {
+    chain = chain.then(function () {
+      return api('', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: p.name, store: addStore, added_by: who, qty: p.qty || undefined }) })
+        .catch(function () {});
+    });
+  });
+  chain.then(function () { refresh(); toast('Added ' + parsed.length + ' items'); });
+};
+
+// ---- In-store mode: big type, big checkboxes, no clutter ----
+document.getElementById('storeBtn').onclick = function () {
+  var on = document.body.classList.toggle('instore');
+  this.classList.toggle('on', on);
+};
+document.getElementById('netBadge').onclick = function () { flushQueue(); };
+
+function qtyNum(q) {
+  var n = parseFloat(q);
+  return (isFinite(n) && n > 0) ? n : 1;
+}
+
 refresh();
+loadStaples();
+updateNetBadge();
 refreshActivity();
 setInterval(refresh, 10000); // near-live sync between the two phones
 setInterval(refreshActivity, 60000);
