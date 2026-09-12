@@ -425,10 +425,13 @@ const PAGE = `<!DOCTYPE html>
 <title>Grocery List</title>
 <style>
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
-  body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif; background: #f4f2ec; color: #20241f; padding-bottom: 200px; }
-  header { position: sticky; top: 0; z-index: 10; background: linear-gradient(150deg, #1d9a55 0%, #0e6b3a 60%, #0a4f2c 100%); color: #fff; padding: calc(16px + env(safe-area-inset-top)) 18px 16px; box-shadow: 0 2px 12px rgba(10,60,35,.35); }
+  body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif; color: #20241f; padding-bottom: 200px;
+    background: radial-gradient(120% 42% at 50% 0%, #faf8f1 0%, #f4f2ec 55%, #edebe3 100%); background-attachment: fixed; }
+  :focus-visible { outline: 2px solid #1d9a55; outline-offset: 2px; }
+  ::selection { background: #bfe6cf; }
+  header { position: sticky; top: 0; z-index: 10; background: linear-gradient(150deg, #22a75e 0%, #0e6b3a 58%, #093f23 100%); color: #fff; padding: calc(16px + env(safe-area-inset-top)) 18px 16px; box-shadow: 0 2px 14px rgba(10,60,35,.38); border-bottom: 1px solid rgba(255,255,255,.14); }
   .headrow { display: flex; align-items: center; justify-content: space-between; }
-  h1 { margin: 0; font-size: 24px; font-weight: 800; letter-spacing: -0.5px; }
+  h1 { margin: 0; font-size: 24px; font-weight: 800; letter-spacing: -0.5px; text-shadow: 0 1px 3px rgba(0,0,0,.22); }
   .sub { font-size: 13px; opacity: .85; margin-top: 2px; font-weight: 500; }
   #whoBtn { border: 1px solid rgba(255,255,255,.45); background: rgba(255,255,255,.16); color: #fff; font-size: 14px; font-weight: 600; padding: 8px 14px; border-radius: 999px; cursor: pointer; transition: transform .12s ease; }
   #whoBtn:active { transform: scale(.94); }
@@ -440,9 +443,12 @@ const PAGE = `<!DOCTYPE html>
   .chips { display: flex; gap: 8px; margin-top: 14px; }
   .chip { flex: 1; padding: 11px 0; border: none; border-radius: 999px; background: rgba(255,255,255,.16); color: #fff; font-size: 15px; font-weight: 700; text-align: center; cursor: pointer; transition: all .15s ease; }
   .chip.active { background: #fff; color: #0b5a34; box-shadow: 0 2px 6px rgba(0,0,0,.2); }
-  .section { margin: 20px 16px 0; font-size: 12px; font-weight: 800; text-transform: uppercase; letter-spacing: 1px; color: #979d94; }
+  .section { margin: 22px 18px 0; font-size: 12.5px; font-weight: 800; text-transform: uppercase; letter-spacing: 1.2px; color: #8a9187; }
   ul { list-style: none; margin: 10px 0 0; padding: 0 14px; }
-  li { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; background: #fff; border-radius: 18px; padding: 14px 14px 14px 12px; margin-bottom: 10px; box-shadow: 0 1px 2px rgba(25,35,25,.05), 0 6px 18px rgba(25,35,25,.06); border-left: 5px solid #d8dcd4; }
+  li { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; background: #fff; border-radius: 20px; padding: 14px 14px 14px 12px; margin-bottom: 10px; border-left: 5px solid #d8dcd4;
+    box-shadow: 0 1px 2px rgba(25,35,25,.04), 0 8px 22px rgba(25,35,25,.07);
+    transition: transform .15s ease, box-shadow .15s ease; }
+  li:active { transform: scale(.985); }
   li.s-heb { border-left-color: #2f7de1; }
   li.s-tjs { border-left-color: #e05757; }
   li.s-costco { border-left-color: #123a7d; }
@@ -460,8 +466,8 @@ const PAGE = `<!DOCTYPE html>
   .tag.tjs { background: #ffe6e6; color: #c74343; }
   .tag.costco { background: #e4ebfa; color: #1d3f8f; }
   .rowbtn { flex: none; border: none; background: none; font-size: 18px; color: #b3b8b0; padding: 8px 6px; cursor: pointer; }
-  .empty { text-align: center; color: #9aa097; margin: 32px; font-size: 15px; line-height: 1.6; }
-  footer { position: fixed; bottom: 12px; left: 12px; right: 12px; background: rgba(255,255,255,.98); border-radius: 22px; box-shadow: 0 8px 28px rgba(20,40,25,.16); padding: 12px 12px calc(12px + env(safe-area-inset-bottom)); }
+  .empty { text-align: center; color: #9aa097; margin: 44px 32px; font-size: 15px; line-height: 1.7; }
+  footer { position: fixed; bottom: 12px; left: 12px; right: 12px; background: rgba(255,255,255,.98); border-radius: 22px; border: 1px solid rgba(20,40,25,.07); box-shadow: 0 8px 28px rgba(20,40,25,.16), 0 2px 6px rgba(20,40,25,.08); padding: 12px 12px calc(12px + env(safe-area-inset-bottom)); }
   .addrow { display: flex; gap: 8px; margin-bottom: 10px; }
   #itemName { flex: 1; font-size: 17px; padding: 14px 16px; border: 1.5px solid #d5dad2; border-radius: 16px; background: #f7f9f5; outline: none; }
   #itemName:focus { border-color: #1d9a55; background: #fff; }
@@ -530,7 +536,7 @@ const PAGE = `<!DOCTYPE html>
   #bulkBuy { background: linear-gradient(150deg, #1d9a55, #0e6b3a); color: #fff; }
   #bulkDel { background: #ffe6e6; color: #c74343; }
   #bulkCancel { background: #eef0ec; color: #4a5148; }
-  li.urgent { border-left-color: #e05240; }
+  li.urgent { border-left-color: #e05240; background: #fff9f7; box-shadow: 0 1px 2px rgba(224,82,64,.14), 0 8px 22px rgba(224,82,64,.10); }
   .utag { flex: none; font-size: 11.5px; font-weight: 800; text-transform: uppercase; letter-spacing: .4px; padding: 6px 10px; border-radius: 999px; background: #ffe6e6; color: #c74343; }
   #bulkUrgent { background: #fff3e0; color: #d97a1f; }
   #bellBtn { position: relative; }
@@ -548,6 +554,7 @@ const PAGE = `<!DOCTYPE html>
   .sheet { position: fixed; inset: 0; z-index: 50; background: rgba(20,30,22,.45); display: none; align-items: flex-end; justify-content: center; }
   .sheet.open { display: flex; }
   .sheetCard { background: #fff; border-radius: 22px 22px 0 0; width: 100%; max-width: 560px; max-height: 82vh; overflow-y: auto; padding: 6px 16px calc(20px + env(safe-area-inset-bottom)); animation: sheetup .18s ease-out; }
+  .sheetCard::before { content: ''; display: block; width: 42px; height: 5px; border-radius: 999px; background: #dcded8; margin: 8px auto 2px; }
   @keyframes sheetup { from { transform: translateY(30px); opacity: .5; } to { transform: none; opacity: 1; } }
   .sheetHead { display: flex; align-items: center; justify-content: space-between; padding: 10px 0 2px; }
   .sheetHead .atitle { font-size: 12px; font-weight: 800; text-transform: uppercase; letter-spacing: 1px; color: #979d94; }
@@ -611,7 +618,7 @@ const PAGE = `<!DOCTYPE html>
     <button id="stapleAdd" class="staplechip add" title="add a staple">&#65291;</button>
   </div>
   <button id="clearBtn">Clear purchased</button>
-  <div class="ver" id="ver">v6 autopurge</div>
+  <div class="ver" id="ver">v7 fullspread</div>
   </div>
   <div class="bulkactions">
     <div class="selcount"><span id="selCount"></span><button id="bulkAll">Select all</button></div>
