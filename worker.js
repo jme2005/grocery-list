@@ -18,8 +18,7 @@ const SW_JS = `self.addEventListener('push', function (event) {
   try { data = event.data.json(); } catch (e) {}
   event.waitUntil(
     self.registration.showNotification(data.title || 'Grocery List', {
-      body: data.body || '',
-      tag: 'grocery-list'
+      body: data.body || ''
     }).then(function () {
       return self.clients.matchAll({ type: 'window', includeUncontrolled: true });
     }).then(function (clis) {
