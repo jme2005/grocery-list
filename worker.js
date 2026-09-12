@@ -167,9 +167,13 @@ async function sendPush(env, sub, payload) {
 }
 
 // Coalescing window: events from the same actor+kind inside this window merge
-// into a single notification ("Johan added 3 items") instead of one per item.
-// The push tag collapses repeats into one on-device notification.
+// into one batch ("Johan added 3 items").
+// Pushes are NOT sent immediately: flushDuePushes() (invoked by the cron
+// trigger every minute) sends exactly one push per batch after PUSH_QUIET_MS
+// with no new events from the actor — so a burst of adds is one notification,
+// not one push per item that merely rewrites the first.
 const EVENT_BATCH_MS = 3 * 60 * 1000;
+const PUSH_QUIET_MS = 45 * 1000;
 
 function buildEventBody(actor, kind, count, names, extra) {
   const list = names.length > 1 && names.length <= 3
@@ -188,15 +192,34 @@ function buildEventBody(actor, kind, count, names, extra) {
                      : actor + ' will get ' + count + ' items' + list;
 }
 
-// Record the event, coalescing with a recent same-actor+kind batch.
-// Returns the cumulative body text. Throws if the events table is missing
-// (the caller falls back to an unbatched body so pushes work pre-migration).
+// migrate8.sql adds notification_events.push_sent_at. Probe for the column
+// (cached per isolate once present) so this code works whether or not the
+// migration has run yet.
+let HAS_PUSH_SENT_COL = null;
+async function hasPushSentCol(db) {
+  if (HAS_PUSH_SENT_COL === true) return true;
+  try {
+    await db.prepare('SELECT push_sent_at FROM notification_events LIMIT 0').all();
+    HAS_PUSH_SENT_COL = true;
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
+
+// Record the event, coalescing with a recent same-actor+kind batch and
+// re-arming its push (push_sent_at = NULL). Throws if the events table is
+// missing (the caller falls back to an unbatched body so pushes work
+// pre-migration).
 async function upsertEvent(env, actor, kind, label, extra) {
   const now = new Date().toISOString();
   const count = extra.count || 1;
   const windowStart = new Date(Date.now() - EVENT_BATCH_MS).toISOString();
+  const hasCol = await hasPushSentCol(env.DB);
+  const sentFilter = hasCol ? 'AND push_sent_at IS NULL' : '';
+  const rearm = hasCol ? ', push_sent_at = NULL' : '';
   const batch = await env.DB.prepare(
-    'SELECT id, count, names FROM notification_events WHERE actor = ? AND kind = ? AND updated_at > ? ORDER BY updated_at DESC LIMIT 1'
+    'SELECT id, count, names FROM notification_events WHERE actor = ? AND kind = ? AND updated_at > ? ' + sentFilter + ' ORDER BY updated_at DESC LIMIT 1'
   ).bind(actor, kind, windowStart).first();
   let names, total, body;
   if (batch) {
@@ -205,30 +228,85 @@ async function upsertEvent(env, actor, kind, label, extra) {
     names = names.slice(-6);
     total = (batch.count || 1) + count;
     body = buildEventBody(actor, kind, total, names, extra);
-    await env.DB.prepare('UPDATE notification_events SET body = ?, count = ?, names = ?, updated_at = ? WHERE id = ?')
+    await env.DB.prepare('UPDATE notification_events SET body = ?, count = ?, names = ?, updated_at = ?' + rearm + ' WHERE id = ?')
       .bind(body, total, JSON.stringify(names), now, batch.id).run();
     return body;
   }
   names = label ? [label] : [];
   total = count;
   body = buildEventBody(actor, kind, total, names, extra);
-  await env.DB.prepare('INSERT INTO notification_events (id, actor, kind, body, count, names, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
-    .bind(crypto.randomUUID(), actor, kind, body, total, JSON.stringify(names), now, now).run();
+  await env.DB.prepare(
+    'INSERT INTO notification_events (id, actor, kind, body, count, names, created_at, updated_at' + (hasCol ? ', push_sent_at' : '') + ') VALUES (?, ?, ?, ?, ?, ?, ?, ?' + (hasCol ? ', NULL' : '') + ')'
+  ).bind(crypto.randomUUID(), actor, kind, body, total, JSON.stringify(names), now, now).run();
   return body;
 }
 
-// Fan out a notification to every subscribed device except the actor's own.
-// Never throws: notification failures must not break the grocery API.
-async function notifyOthers(env, actor, kind, label, extra) {
+// Reconcile a pending batch against the items table so the push matches
+// reality: things the actor added then deleted (un-bought, un-claimed) before
+// the flush don't inflate the count. Returns { count, names }, or null when
+// reconciliation isn't possible (flush with the stored body instead).
+async function reconcileBatch(db, batch) {
+  let stmt;
+  if (batch.kind === 'add') {
+    stmt = db.prepare('SELECT name FROM items WHERE added_by = ? AND created_at >= ? ORDER BY created_at').bind(batch.actor, batch.created_at);
+  } else if (batch.kind === 'purchase') {
+    stmt = db.prepare('SELECT name FROM items WHERE purchased_by = ? AND checked = 1 AND purchased_at >= ? ORDER BY purchased_at').bind(batch.actor, batch.created_at);
+  } else if (batch.kind === 'claim') {
+    stmt = db.prepare('SELECT name FROM items WHERE claimed_by = ? AND claimed_at >= ? ORDER BY claimed_at').bind(batch.actor, batch.created_at);
+  } else {
+    return null;
+  }
   try {
-    if (!actor || !kind) return;
-    extra = extra || {};
-    let body;
-    try {
-      body = await upsertEvent(env, actor, kind, label, extra);
-    } catch (e) {
-      body = buildEventBody(actor, kind, extra.count || 1, label ? [label] : [], extra);
+    const rows = (await stmt.all()).results || [];
+    const names = rows.map(function (r) { return r.name; });
+    return { count: names.length, names: names.slice(-6) };
+  } catch (e) {
+    return null;
+  }
+}
+
+// Send one push per batch that has seen no new events for PUSH_QUIET_MS.
+// Reconciles counts against the items table, drops batches whose items are
+// all gone, and claims each batch (push_sent_at) before pushing so a batch is
+// never pushed twice.
+async function flushDuePushes(env) {
+  try {
+    if (!env.VAPID_PRIVATE_JWK) return;
+    if (!(await hasPushSentCol(env.DB))) return;
+    const cutoff = new Date(Date.now() - PUSH_QUIET_MS).toISOString();
+    const rows = (await env.DB.prepare(
+      'SELECT id, actor, kind, body, count, created_at, updated_at FROM notification_events WHERE push_sent_at IS NULL AND updated_at <= ?'
+    ).bind(cutoff).all()).results || [];
+    for (const b of rows) {
+      const rec = await reconcileBatch(env.DB, b);
+      if (rec && rec.count === 0) {
+        // Everything in this batch was undone (e.g. added then deleted):
+        // drop it silently — unless a new event re-armed it meanwhile.
+        await env.DB.prepare('DELETE FROM notification_events WHERE id = ? AND updated_at = ? AND push_sent_at IS NULL')
+          .bind(b.id, b.updated_at).run();
+        continue;
+      }
+      let body = b.body;
+      if (rec && rec.count !== b.count) {
+        body = buildEventBody(b.actor, b.kind, rec.count, rec.names, {});
+        await env.DB.prepare('UPDATE notification_events SET body = ?, count = ?, names = ? WHERE id = ? AND updated_at = ? AND push_sent_at IS NULL')
+          .bind(body, rec.count, JSON.stringify(rec.names), b.id, b.updated_at).run();
+      }
+      // Claim the batch before pushing; if a new event re-armed it meanwhile
+      // (updated_at changed) this marks 0 rows and the next cron run flushes it.
+      const marked = await env.DB.prepare('UPDATE notification_events SET push_sent_at = ? WHERE id = ? AND updated_at = ? AND push_sent_at IS NULL')
+        .bind(new Date().toISOString(), b.id, b.updated_at).run();
+      if (marked.meta.changes === 0) continue;
+      await fanoutPush(env, b.actor, body);
     }
+  } catch (e) { /* pushes must never break the worker */ }
+}
+
+// Fan out one push to every subscribed device except the actor's own.
+// Never throws: notification failures must not break the grocery API.
+async function fanoutPush(env, actor, body) {
+  try {
+    if (!env.VAPID_PRIVATE_JWK) return;
     const rows = await env.DB.prepare('SELECT endpoint, p256dh, auth, name FROM push_subscriptions').all();
     const subs = (rows.results || []).filter(s => s.name !== actor);
     if (!subs.length) return;
@@ -241,6 +319,26 @@ async function notifyOthers(env, actor, kind, label, extra) {
         }
       } catch (e) { /* one bad subscription must not break the rest */ }
     }));
+  } catch (e) { /* notifications must never break the API */ }
+}
+
+// Record activity for a later batched push. Before migrate8 runs (no
+// push_sent_at column) this falls back to an immediate push so notifications
+// keep working. Never throws: activity must never break the grocery API.
+async function recordActivity(env, actor, kind, label, extra) {
+  try {
+    if (!actor || !kind) return;
+    extra = extra || {};
+    let body;
+    try {
+      body = await upsertEvent(env, actor, kind, label, extra);
+    } catch (e) {
+      body = buildEventBody(actor, kind, extra.count || 1, label ? [label] : [], extra);
+    }
+    if (!(await hasPushSentCol(env.DB))) {
+      await fanoutPush(env, actor, body);
+    }
+    // Otherwise the cron flush (flushDuePushes) sends one push after quiet.
   } catch (e) { /* notifications must never break the API */ }
 }
 
@@ -859,7 +957,7 @@ async function handleApi(request, env, ctx, rest) {
     });
     await db.batch(stmts);
     if ((op === 'purchase' || op === 'claim') && by) {
-      ctx.waitUntil(notifyOthers(env, by, op, null, { count: ids.length, when: when }));
+      ctx.waitUntil(recordActivity(env, by, op, null, { count: ids.length, when: when }));
     }
     return json({ ok: true, count: ids.length });
   }
@@ -886,8 +984,8 @@ async function handleApi(request, env, ctx, rest) {
   }
 
   // POST/DELETE /api/items/subscriptions — manage Web Push subscriptions.
-  // Table created by migrate6.sql. Fan-out happens in notifyOthers(), called
-  // from the add/purchase/claim handlers via ctx.waitUntil().
+  // Table created by migrate6.sql. Events are queued by recordActivity() and
+  // flushed as one push per batch by the cron trigger (flushDuePushes).
   if (rest.length === 1 && rest[0] === 'subscriptions') {
     if (method === 'POST') {
       let body;
@@ -935,7 +1033,7 @@ async function handleApi(request, env, ctx, rest) {
         .bind(id, name, store, addedBy, now, now)
         .run();
       if (addedBy) {
-        ctx.waitUntil(notifyOthers(env, addedBy, 'add', name, { store: store }));
+        ctx.waitUntil(recordActivity(env, addedBy, 'add', name, { store: store }));
       }
       return json({ id, name, store, checked: 0, added_by: addedBy, created_at: now, updated_at: now }, 201);
     }
@@ -1004,11 +1102,11 @@ async function handleApi(request, env, ctx, rest) {
       if (existing) {
         if (body.checked && !existing.checked) {
           const actor = (body.purchased_by || '').toString().trim().slice(0, 60);
-          if (actor) ctx.waitUntil(notifyOthers(env, actor, 'purchase', existing.name));
+          if (actor) ctx.waitUntil(recordActivity(env, actor, 'purchase', existing.name));
         } else if (body.claimed) {
           const actor = (body.claimed_by || '').toString().trim().slice(0, 60);
           const when = (body.claim_when || '').toString().trim().slice(0, 60);
-          if (actor) ctx.waitUntil(notifyOthers(env, actor, 'claim', existing.name, { when: when }));
+          if (actor) ctx.waitUntil(recordActivity(env, actor, 'claim', existing.name, { when: when }));
         }
       }
       return json({ ok: true });
@@ -1051,5 +1149,11 @@ export default {
       return new Response(SW_JS, { headers: { 'Content-Type': 'application/javascript' } });
     }
     return new Response('Not found', { status: 404 });
+  },
+
+  // Cron trigger (see [triggers] in wrangler.toml): flush pending notification
+  // batches — one push per batch after the actor goes quiet.
+  async scheduled(event, env, ctx) {
+    ctx.waitUntil(flushDuePushes(env));
   },
 };

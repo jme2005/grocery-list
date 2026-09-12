@@ -6,3 +6,6 @@ compatibility_date = "2026-09-01"
 binding = "DB"
 database_name = "grocery-list-db"
 database_id = "REPLACE_WITH_D1_DATABASE_ID"
+
+[triggers]
+crons = ["* * * * *"]
