@@ -502,6 +502,8 @@ const PAGE = `<!DOCTYPE html>
   .dlabel { display: block; font-size: 14px; font-weight: 700; color: #5c665c; margin: 12px 0; }
   .dlabel input { display: block; width: 100%; box-sizing: border-box; margin-top: 6px; font-size: 16px; padding: 11px 12px; border: 1.5px solid #e2dcc9; border-radius: 12px; outline: none; background: #faf7ee; color: #22301f; }
   .dlabel input:focus { border-color: #1d7a44; background: #fff; }
+  .dlabel select { display: block; width: 100%; box-sizing: border-box; margin-top: 6px; font-size: 16px; padding: 11px 12px; border: 1.5px solid #e2dcc9; border-radius: 12px; outline: none; background: #faf7ee; color: #22301f; }
+  .depthead { list-style: none; font-size: 11.5px; font-weight: 800; letter-spacing: .14em; text-transform: uppercase; color: #2e5d3a; padding: 16px 18px 6px; }
   .dpreview { width: 100%; max-height: 220px; object-fit: contain; border-radius: 12px; margin: 4px 0 8px; }
   #recipeText { width: 100%; box-sizing: border-box; font-size: 16px; padding: 12px; border: 1.5px solid #e2dcc9; border-radius: 12px; outline: none; resize: vertical; background: #faf7ee; color: #22301f; }
   #recipeText:focus { border-color: #1d7a44; background: #fff; }
@@ -670,6 +672,7 @@ const PAGE = `<!DOCTYPE html>
     <div class="sheetHead"><span class="atitle" id="detailTitle">Item details</span><button class="ax" id="detailX" aria-label="close">&times;</button></div>
     <label class="dlabel">Note<input id="detailNote" type="text" maxlength="200" placeholder="e.g. organic only"></label>
     <label class="dlabel">Price estimate ($)<input id="detailPrice" type="number" min="0" step="0.01" inputmode="decimal" placeholder="0.00"></label>
+    <label class="dlabel">Department<select id="detailDept"></select></label>
     <label class="dlabel">Photo<input id="detailPhoto" type="file" accept="image/*"></label>
     <img id="detailPreview" class="dpreview" alt="" style="display:none">
     <div class="abtns">
@@ -1193,6 +1196,7 @@ function openDetail(it) {
   detailItem = it;
   detailPhotoData = null;
   document.getElementById('detailTitle').textContent = it.name;
+  document.getElementById('detailDept').value = deptOf(it.name, deptOverrides);
   document.getElementById('detailNote').value = it.note || '';
   document.getElementById('detailPrice').value = (it.price === null || it.price === undefined || it.price === '') ? '' : it.price;
   var prev = document.getElementById('detailPreview');
@@ -1207,6 +1211,14 @@ function closeDetail() {
   detailPhotoData = null;
 }
 document.getElementById('detailX').onclick = closeDetail;
+(function () {
+  var sel = document.getElementById('detailDept');
+  DEPTS.forEach(function (d) {
+    var o = document.createElement('option');
+    o.value = d; o.textContent = d;
+    sel.appendChild(o);
+  });
+})();
 document.getElementById('detailSheet').addEventListener('click', function (e) { if (e.target === this) closeDetail(); });
 document.getElementById('detailPhoto').addEventListener('change', function (e) {
   var f = e.target.files && e.target.files[0];
@@ -1221,13 +1233,34 @@ document.getElementById('detailPhoto').addEventListener('change', function (e) {
 });
 document.getElementById('detailSave').onclick = function () {
   if (!detailItem) return;
+  var item = detailItem;
   var body = {
     note: document.getElementById('detailNote').value,
     price: document.getElementById('detailPrice').value
   };
   if (detailPhotoData) body.photo = detailPhotoData;
-  api('/' + detailItem.id, { method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+  var deptSel = document.getElementById('detailDept').value;
+  var autoDept = deptOf(item.name, null);
+  var key = item.name.toLowerCase().trim();
+  function saveDept() {
+    // Remember a manual correction so the same item auto-files next time;
+    // picking the auto department again clears the correction.
+    if (deptSel !== autoDept) {
+      return fetch('api/items/dept-overrides', { method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: key, dept: deptSel }) });
+    }
+    if (deptOverrides[key]) {
+      return fetch('api/items/dept-overrides', { method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: key }) });
+    }
+    return Promise.resolve();
+  }
+  api('/' + item.id, { method: 'PATCH', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body) })
+    .then(saveDept)
+    .then(loadDeptOverrides)
     .then(function () { closeDetail(); refresh(); })
     .catch(function () { showErr('Could not save details'); });
 };
@@ -1319,6 +1352,109 @@ document.getElementById('bulkDel').onclick = function () {
 };
 document.getElementById('bulkCancel').onclick = endSelect;
 
+// ---- Departments: group the list the way you walk the store (H-E-B order) ----
+var DEPTS = ['Produce','Bakery','Deli & Prepared','Meat & Seafood','Dairy & Eggs','Frozen','Pantry','Beverages','Snacks','Household','Other'];
+var DEPT_ORDER = {};
+DEPTS.forEach(function (d, i) { DEPT_ORDER[d] = i; });
+// [keyword, department] — first match wins. Specific multi-word phrases come
+// before the single words they contain (peanut butter before butter, ...).
+// Keywords are lowercase [a-z0-9 ]; they match whole words, plural allowed.
+var DEPT_KEYS = [
+  ['rotisserie chicken','Deli & Prepared'],['pizza dough','Deli & Prepared'],
+  ['ice cream','Frozen'],['frozen pizza','Frozen'],['frozen yogurt','Frozen'],
+  ['tuna steak','Meat & Seafood'],['crab cake','Meat & Seafood'],['egg roll','Deli & Prepared'],
+  ['half and half','Dairy & Eggs'],['sour cream','Dairy & Eggs'],['cottage cheese','Dairy & Eggs'],
+  ['cream cheese','Dairy & Eggs'],['coffee creamer','Dairy & Eggs'],['cookie dough','Dairy & Eggs'],
+  ['peanut butter','Pantry'],['almond butter','Pantry'],['coconut milk','Pantry'],
+  ['coconut water','Beverages'],['black pepper','Pantry'],['bread crumbs','Pantry'],
+  ['mac and cheese','Pantry'],['macaroni and cheese','Pantry'],['tomato sauce','Pantry'],
+  ['pasta sauce','Pantry'],['marinara','Pantry'],['fish sauce','Pantry'],
+  ['oyster sauce','Pantry'],['soy sauce','Pantry'],['corn starch','Pantry'],
+  ['cookies','Snacks'],['cookie','Snacks'],
+  ['chocolate chips','Pantry'],['chocolate chip','Pantry'],
+  ['orange juice','Beverages'],['apple juice','Beverages'],['sparkling water','Beverages'],
+  ['energy drink','Beverages'],
+  ['green beans','Produce'],['bell pepper','Produce'],['sweet potato','Produce'],
+  ['brussels sprout','Produce'],
+  ['rice cakes','Snacks'],['granola bar','Snacks'],['protein bar','Snacks'],
+  ['trail mix','Snacks'],['candy corn','Snacks'],
+  ['paper towel','Household'],['toilet paper','Household'],['trash bag','Household'],
+  ['plastic wrap','Household'],['dish soap','Household'],
+  ['pancake mix','Pantry'],['baking powder','Pantry'],['baking soda','Pantry'],
+  ['deli','Deli & Prepared'],['hummus','Deli & Prepared'],['guacamole','Deli & Prepared'],
+  ['salsa','Deli & Prepared'],['sandwich','Deli & Prepared'],['prepared','Deli & Prepared'],
+  ['gelato','Frozen'],['popsicle','Frozen'],['frozen','Frozen'],['waffle','Frozen'],
+  ['chicken','Meat & Seafood'],['turkey','Meat & Seafood'],['beef','Meat & Seafood'],
+  ['steak','Meat & Seafood'],['pork','Meat & Seafood'],['bacon','Meat & Seafood'],
+  ['sausage','Meat & Seafood'],['chorizo','Meat & Seafood'],['ham','Meat & Seafood'],
+  ['salami','Meat & Seafood'],['pepperoni','Meat & Seafood'],['prosciutto','Meat & Seafood'],
+  ['salmon','Meat & Seafood'],['shrimp','Meat & Seafood'],['tilapia','Meat & Seafood'],
+  ['cod','Meat & Seafood'],['crab','Meat & Seafood'],['lobster','Meat & Seafood'],
+  ['seafood','Meat & Seafood'],['fish','Meat & Seafood'],['meatball','Meat & Seafood'],
+  ['meat','Meat & Seafood'],['tuna','Pantry'],
+  ['mozzarella','Dairy & Eggs'],['cheddar','Dairy & Eggs'],['parmesan','Dairy & Eggs'],
+  ['yogurt','Dairy & Eggs'],['kefir','Dairy & Eggs'],['ghee','Dairy & Eggs'],
+  ['creamer','Dairy & Eggs'],['milk','Dairy & Eggs'],['cheese','Dairy & Eggs'],
+  ['butter','Dairy & Eggs'],['egg','Dairy & Eggs'],['cream','Dairy & Eggs'],
+  ['rice','Pantry'],['pasta','Pantry'],['spaghetti','Pantry'],['noodle','Pantry'],
+  ['ramen','Pantry'],['pancake','Pantry'],['flour','Pantry'],['sugar','Pantry'],
+  ['salt','Pantry'],['oil','Pantry'],['vinegar','Pantry'],['broth','Pantry'],
+  ['stock','Pantry'],['soup','Pantry'],['cereal','Pantry'],['oatmeal','Pantry'],['granola','Pantry'],
+  ['oats','Pantry'],['syrup','Pantry'],['honey','Pantry'],['jam','Pantry'],
+  ['jelly','Pantry'],['ketchup','Pantry'],['mustard','Pantry'],['mayo','Pantry'],
+  ['mayonnaise','Pantry'],['dressing','Pantry'],['spice','Pantry'],['seasoning','Pantry'],
+  ['oregano','Pantry'],['cumin','Pantry'],['paprika','Pantry'],['cinnamon','Pantry'],
+  ['turmeric','Pantry'],['curry','Pantry'],['yeast','Pantry'],['bean','Pantry'],
+  ['lentil','Pantry'],['quinoa','Pantry'],['couscous','Pantry'],['cornstarch','Pantry'],
+  ['coffee','Beverages'],['tea','Beverages'],['juice','Beverages'],['soda','Beverages'],
+  ['seltzer','Beverages'],['water','Beverages'],['lemonade','Beverages'],
+  ['kombucha','Beverages'],['beer','Beverages'],['wine','Beverages'],
+  ['chips','Snacks'],['crackers','Snacks'],['pretzel','Snacks'],['popcorn','Snacks'],
+  ['nuts','Snacks'],['nut','Snacks'],['almond','Snacks'],['peanut','Snacks'],
+  ['cashew','Snacks'],['candy','Snacks'],
+  ['chocolate','Snacks'],
+  ['bread','Bakery'],['bagel','Bakery'],['croissant','Bakery'],['muffin','Bakery'],
+  ['donut','Bakery'],['baguette','Bakery'],['tortilla','Bakery'],['roll','Bakery'],
+  ['bun','Bakery'],['pita','Bakery'],['cake','Bakery'],['pastry','Bakery'],
+  ['apple','Produce'],['banana','Produce'],['orange','Produce'],['lemon','Produce'],
+  ['lime','Produce'],['grape','Produce'],['strawberry','Produce'],['blueberry','Produce'],
+  ['raspberry','Produce'],['blackberry','Produce'],['avocado','Produce'],['mango','Produce'],
+  ['pineapple','Produce'],['peach','Produce'],['pear','Produce'],['plum','Produce'],
+  ['kiwi','Produce'],['melon','Produce'],['watermelon','Produce'],['cantaloupe','Produce'],
+  ['cherry','Produce'],['coconut','Produce'],['pomegranate','Produce'],
+  ['lettuce','Produce'],['spinach','Produce'],['kale','Produce'],['arugula','Produce'],
+  ['salad','Produce'],['carrot','Produce'],['celery','Produce'],['onion','Produce'],
+  ['garlic','Produce'],['potato','Produce'],['broccoli','Produce'],['cauliflower','Produce'],
+  ['cucumber','Produce'],['zucchini','Produce'],['squash','Produce'],['mushroom','Produce'],
+  ['corn','Produce'],['asparagus','Produce'],['cabbage','Produce'],['pepper','Produce'],
+  ['tomato','Produce'],['herb','Produce'],['cilantro','Produce'],['parsley','Produce'],
+  ['basil','Produce'],['ginger','Produce'],['leek','Produce'],['radish','Produce'],
+  ['beet','Produce'],['okra','Produce'],['artichoke','Produce'],['eggplant','Produce'],
+  ['tofu','Produce'],['fruit','Produce'],['vegetable','Produce'],['veggie','Produce'],
+  ['napkin','Household'],['tissue','Household'],['soap','Household'],['detergent','Household'],
+  ['shampoo','Household'],['conditioner','Household'],['toothpaste','Household'],
+  ['toothbrush','Household'],['ziploc','Household'],['foil','Household'],
+  ['parchment','Household'],['batteries','Household'],['battery','Household'],
+  ['cleaner','Household'],['cleaning','Household'],['sponge','Household'],['bleach','Household'],
+  ['deodorant','Household'],['lotion','Household'],['sunscreen','Household'],
+  ['vitamin','Household'],['medicine','Household'],['bandage','Household'],
+  ['mop','Household'],['broom','Household']
+];
+function deptOf(name, overrides) {
+  var n = (name || '').toString().toLowerCase().trim();
+  if (overrides && DEPT_ORDER[overrides[n]] !== undefined) return overrides[n];
+  for (var i = 0; i < DEPT_KEYS.length; i++) {
+    if (new RegExp('\\\\b' + DEPT_KEYS[i][0] + '(s|es)?\\\\b').test(n)) return DEPT_KEYS[i][1];
+  }
+  return 'Other';
+}
+// Learned department corrections, shared across devices (see dept-overrides API).
+var deptOverrides = {};
+function loadDeptOverrides() {
+  return fetch('api/items/dept-overrides').then(function (r) { return r.json(); })
+    .then(function (d) { deptOverrides = (d && d.overrides) || {}; render(); })
+    .catch(function () {});
+}
 function render() {
   listEl.innerHTML = '';
   purchEl.innerHTML = '';
@@ -1335,7 +1471,20 @@ function render() {
     if (it.price !== null && it.price !== undefined && it.price !== '') tripSum += Number(it.price) || 0;
   });
   document.getElementById('tripTotal').textContent = tripSum > 0 ? ' \u00B7 est. $' + tripSum.toFixed(2) : '';
-  active.forEach(function (it) { listEl.appendChild(makeRow(it, false)); });
+  var groups = {};
+  active.forEach(function (it) {
+    var d = deptOf(it.name, deptOverrides);
+    (groups[d] = groups[d] || []).push(it);
+  });
+  DEPTS.forEach(function (d) {
+    var g = groups[d];
+    if (!g || !g.length) return;
+    var h = document.createElement('li');
+    h.className = 'depthead';
+    h.textContent = d;
+    listEl.appendChild(h);
+    g.forEach(function (it) { listEl.appendChild(makeRow(it, false)); });
+  });
   purchHead.style.display = bought.length ? 'block' : 'none';
   purchHead.textContent = 'Purchased (' + bought.length + ')';
   bought.forEach(function (it) { purchEl.appendChild(makeRow(it, true)); });
@@ -1623,6 +1772,7 @@ function qtyNum(q) {
 }
 
 refresh();
+loadDeptOverrides();
 loadStaples();
 updateNetBadge();
 refreshActivity();
@@ -1856,6 +2006,40 @@ async function handleApi(request, env, ctx, rest) {
 
   // GET /api/items/staples  |  POST /api/items/staples
   // Table created by migrate9.sql; returns [] if the migration hasn't run yet.
+  // GET/POST/DELETE /api/items/dept-overrides — learned department corrections.
+  // Table created by migrate10.sql; endpoints work without it (GET → {}).
+  var VALID_DEPTS = ['Produce','Bakery','Deli & Prepared','Meat & Seafood','Dairy & Eggs','Frozen','Pantry','Beverages','Snacks','Household'];
+  if (rest.length === 1 && rest[0] === 'dept-overrides') {
+    if (method === 'GET') {
+      try {
+        const orows = await db.prepare('SELECT name, dept FROM dept_overrides').all();
+        var ov = {};
+        (orows.results || []).forEach(function (r) {
+          if (VALID_DEPTS.indexOf(r.dept) >= 0) ov[r.name] = r.dept;
+        });
+        return json({ overrides: ov });
+      } catch (e) { return json({ overrides: {} }); }
+    }
+    if (method === 'POST') {
+      let obody;
+      try { obody = await request.json(); } catch { return badRequest('Invalid JSON'); }
+      var oname = (obody.name || '').toString().trim().toLowerCase().slice(0, 80);
+      var odept = (obody.dept || '').toString().trim().slice(0, 40);
+      if (!oname || VALID_DEPTS.indexOf(odept) < 0) return badRequest('bad override');
+      await db.prepare('CREATE TABLE IF NOT EXISTS dept_overrides (name TEXT PRIMARY KEY, dept TEXT NOT NULL)').run();
+      await db.prepare('INSERT OR REPLACE INTO dept_overrides (name, dept) VALUES (?, ?)').bind(oname, odept).run();
+      return json({ ok: true });
+    }
+    if (method === 'DELETE') {
+      let dbody;
+      try { dbody = await request.json(); } catch { return badRequest('Invalid JSON'); }
+      var dname = (dbody.name || '').toString().trim().toLowerCase().slice(0, 80);
+      try { await db.prepare('DELETE FROM dept_overrides WHERE name = ?').bind(dname).run(); } catch (e) {}
+      return json({ ok: true });
+    }
+    return json({ error: 'Method not allowed' }, 405);
+  }
+
   if (rest.length === 1 && rest[0] === 'staples') {
     try {
       if (method === 'GET') {
