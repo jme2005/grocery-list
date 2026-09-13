@@ -2008,7 +2008,7 @@ async function handleApi(request, env, ctx, rest) {
   // Table created by migrate9.sql; returns [] if the migration hasn't run yet.
   // GET/POST/DELETE /api/items/dept-overrides — learned department corrections.
   // Table created by migrate10.sql; endpoints work without it (GET → {}).
-  var VALID_DEPTS = ['Produce','Bakery','Deli & Prepared','Meat & Seafood','Dairy & Eggs','Frozen','Pantry','Beverages','Snacks','Household'];
+  var VALID_DEPTS = ['Produce','Bakery','Deli & Prepared','Meat & Seafood','Dairy & Eggs','Frozen','Pantry','Beverages','Snacks','Household','Other'];
   if (rest.length === 1 && rest[0] === 'dept-overrides') {
     if (method === 'GET') {
       try {
