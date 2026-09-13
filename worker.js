@@ -1211,14 +1211,6 @@ function closeDetail() {
   detailPhotoData = null;
 }
 document.getElementById('detailX').onclick = closeDetail;
-(function () {
-  var sel = document.getElementById('detailDept');
-  DEPTS.forEach(function (d) {
-    var o = document.createElement('option');
-    o.value = d; o.textContent = d;
-    sel.appendChild(o);
-  });
-})();
 document.getElementById('detailSheet').addEventListener('click', function (e) { if (e.target === this) closeDetail(); });
 document.getElementById('detailPhoto').addEventListener('change', function (e) {
   var f = e.target.files && e.target.files[0];
@@ -1448,6 +1440,15 @@ function deptOf(name, overrides) {
   }
   return 'Other';
 }
+// Populate the department picker (runs after DEPTS is defined above).
+(function () {
+  var sel = document.getElementById('detailDept');
+  DEPTS.forEach(function (d) {
+    var o = document.createElement('option');
+    o.value = d; o.textContent = d;
+    sel.appendChild(o);
+  });
+})();
 // Learned department corrections, shared across devices (see dept-overrides API).
 var deptOverrides = {};
 function loadDeptOverrides() {

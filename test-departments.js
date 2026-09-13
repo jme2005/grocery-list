@@ -105,4 +105,9 @@ ok(src.includes("rest[0] === 'dept-overrides'"), 'dept-overrides endpoint regist
 ok(src.includes('id="detailDept"'), 'detail sheet has department picker');
 ok(src.includes('depthead'), 'render emits department headers');
 ok(src.includes('loadDeptOverrides()'), 'overrides loaded at init');
+
+// regression: DEPTS must be assigned before any DEPTS.forEach runs in the
+// served script (a use-before-definition throws and kills the whole app).
+ok(script.indexOf('var DEPTS = [') < script.indexOf('DEPTS.forEach'),
+  'var DEPTS assigned before first DEPTS.forEach in served script');
 console.log('DONE');
